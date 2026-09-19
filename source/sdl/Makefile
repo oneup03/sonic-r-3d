@@ -32,7 +32,11 @@ else ifneq ($(IS_MINGW),)
 else
   CC ?= gcc
   GL_CFLAGS =
-  GL_LIBS = -lGL
+  # GLEW is required, not optional: r_gl_backend.c, render_gl.c, r_compose_gl.c
+  # and r_soft_backend.c all include <GL/glew.h> and the stereo compose pass
+  # reaches well past GL 1.1 (FBOs, shaders). Only macOS escapes it — those
+  # files take the OpenGL.framework path under __APPLE__ instead.
+  GL_LIBS = -lGL -lGLEW
   PLATFORM_CFLAGS = -Wno-strict-aliasing -Wno-unused-result -Wno-misleading-indentation \
                      -Wno-array-bounds -Wno-attribute-warning -Wno-maybe-uninitialized \
                      -Wno-parentheses -Wno-type-limits -Wno-stringop-overflow \

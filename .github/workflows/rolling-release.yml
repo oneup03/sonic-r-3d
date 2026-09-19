@@ -1,0 +1,225 @@
+# Rolling release — build Windows + Linux and republish the "rolling" release.
+#
+# The release keeps ONE stable tag and ONE stable set of asset names, so the
+# download URLs never change:
+#
+#   https://github.com/<owner>/<repo>/releases/latest/download/sonic-r-3d-windows-x64.zip
+#
+# That is the point of the force-moved tag and `--clobber` upload below. The
+# alternative — delete and recreate the release each run — would give the same
+# files a new URL every time and reset the release's publish date.
+#
+# The artifacts are the ENGINE ONLY. Sonic R's track, model, texture and music
+# data is Sega's and is not redistributed here; a release is unplayable without
+# a copy of the original game. See README.md, which ships inside both archives.
+
+name: Rolling release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One release at a time. Two runs racing would fight over the tag and could
+# leave the release pointing at one commit with the other commit's binaries.
+concurrency:
+  group: rolling-release
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  ROLLING_TAG: rolling
+
+jobs:
+  windows:
+    name: Build (Windows, MinGW64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # leiasr_shim needs libs/SR-lib. It is a public repo, so an
+          # anonymous checkout is enough — no PAT plumbing.
+          submodules: recursive
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          # Mirrors the "Install/refresh MSYS2 build dependencies" task in
+          # .vscode/tasks.json, minus gdb. Keep the two in step.
+          install: >-
+            make
+            zip
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_mixer
+            mingw-w64-x86_64-miniupnpc
+            mingw-w64-x86_64-glew
+            mingw-w64-x86_64-opusfile
+            mingw-w64-x86_64-opus
+            mingw-w64-x86_64-libogg
+            mingw-w64-x86_64-libvorbis
+            mingw-w64-x86_64-flac
+            mingw-w64-x86_64-mpg123
+            mingw-w64-x86_64-libxmp
+            mingw-w64-x86_64-wavpack
+
+      - name: Build engine
+        shell: msys2 {0}
+        run: make -C source/sdl -j$(nproc) release CC=gcc
+
+      # MSVC, deliberately separate from the MinGW build above: the SR SDK uses
+      # virtual inheritance, whose ABI MinGW and MSVC disagree on, so the shim
+      # exists to put a flat C ABI between them. See leiasr_shim/README.md.
+      #
+      # Non-blocking on purpose. Without the DLL the game falls back to
+      # side-by-side output and everything else still works, so a missing
+      # Visual Studio component or an SDK change must not hold up a release
+      # of the engine. The packaging step reports whether it made it in.
+      - name: Build LeiaSR shim (MSVC)
+        id: shim
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          cmake -S leiasr_shim -B leiasr_shim/build -A x64
+          cmake --build leiasr_shim/build --config Release
+
+      - name: Package
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          out=dist/sonic-r-3d
+          mkdir -p "$out"
+          cp source/sdl/build-release/sonicr.exe "$out/SONICR.EXE"
+          # Same layout the Deploy task produces: DATA's CONTENTS sit next to
+          # the exe, not inside a DATA/ folder.
+          cp -R DATA/. "$out/"
+          cp README.md LICENSE "$out/"
+          if [ -f leiasr_shim/build/Release/leiasr_shim.dll ]; then
+            cp leiasr_shim/build/Release/leiasr_shim.dll "$out/"
+            echo "leiasr_shim.dll: included"
+          else
+            echo "leiasr_shim.dll: MISSING — LeiaSR output will fall back to SbS"
+          fi
+          (cd dist && zip -r ../sonic-r-3d-windows-x64.zip sonic-r-3d)
+          ls -l sonic-r-3d-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: sonic-r-3d-windows-x64.zip
+          retention-days: 7
+
+  linux:
+    name: Build (Linux, x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config \
+            libsdl2-dev libsdl2-mixer-dev \
+            libglew-dev libgl1-mesa-dev \
+            libminiupnpc-dev
+
+      - name: Build engine
+        run: make -C source/sdl -j"$(nproc)" release
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          out=dist/sonic-r-3d
+          mkdir -p "$out"
+          cp source/sdl/build-release/sonicr "$out/sonicr"
+          chmod +x "$out/sonicr"
+          cp -R DATA/. "$out/"
+          cp README.md LICENSE "$out/"
+          tar -czf sonic-r-3d-linux-x86_64.tar.gz -C dist sonic-r-3d
+          ls -l sonic-r-3d-linux-x86_64.tar.gz
+          echo "--- dynamic dependencies ---"
+          ldd "$out/sonicr" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: sonic-r-3d-linux-x86_64.tar.gz
+          retention-days: 7
+
+  release:
+    name: Publish rolling release
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Move tag and update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$ROLLING_TAG"
+          sha="$GITHUB_SHA"
+          short="${sha:0:7}"
+          subject="$(git log -1 --pretty=%s "$sha")"
+          built="$(date -u +'%Y-%m-%d %H:%M UTC')"
+
+          # Unquoted heredoc so $sha/$subject expand; backticks escaped so the
+          # shell does not try to run them. YAML has already stripped this
+          # block's indentation, so EOF really is at the start of a line.
+          notes="$(cat <<EOF
+          Automatic build of \`main\`, rebuilt on every push.
+
+          - **Commit** [\`$short\`](https://github.com/$GITHUB_REPOSITORY/commit/$sha) — $subject
+          - **Built** $built
+
+          ### Downloads
+
+          - **Windows (x64)** — \`sonic-r-3d-windows-x64.zip\`. Statically linked; nothing to install.
+          - **Linux (x86_64)** — \`sonic-r-3d-linux-x86_64.tar.gz\`. Links against the system SDL2, SDL2_mixer, GLEW and miniupnpc. Built on the current \`ubuntu-latest\` runner, so it expects a reasonably recent distro.
+
+          ### This is the engine only
+
+          No Sonic R game data is included — the track, model, texture and music
+          files are Sega's. You need a copy of the original PC release. Unpack the
+          archive over (or alongside) your game directory so the executable sits
+          with the game's data folders. See \`README.md\` in the archive.
+          EOF
+          )"
+
+          git tag -f "$tag" "$sha"
+          git push -f origin "refs/tags/$tag"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # No --target here: the force-move above already placed the tag,
+            # and the release resolves through the tag name. Passing it only
+            # matters when gh has to create the tag itself.
+            gh release edit "$tag" \
+              --title "Rolling release" \
+              --notes "$notes" \
+              --prerelease
+          else
+            gh release create "$tag" \
+              --title "Rolling release" \
+              --notes "$notes" \
+              --prerelease \
+              --target "$sha"
+          fi
+
+          # --clobber replaces same-named assets in place, which is what keeps
+          # the /releases/latest/download/<name> URLs stable across runs.
+          gh release upload "$tag" \
+            dist/sonic-r-3d-windows-x64.zip \
+            dist/sonic-r-3d-linux-x86_64.tar.gz \
+            --clobber
+
+          echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
