@@ -418,8 +418,29 @@ void DrawCollectEffectsD3D(CollectEffect *buf)  /* EAX = buffer */
         }
 
         /* --- Fog: depth-based alpha modulation (0x45078F-0x450935) ---
-         * Binary uses adjZ (camZ-0x48) for both depth and rhw. */
-        float fDepthRatio = reciprocal(adjZ); // 1.0f / (float)adjZ;
+         * Depth and fog use adjZ, the z-buffer bias, exactly as the binary does.
+         *
+         * rhw does NOT. It has to match the W the screen X/Y above were
+         * projected with, which is camZ — the same invariant
+         * BuildGridClipVertex documents, where submitting the biased depth as
+         * rhw made the grid textures swim.
+         *
+         * The binary did submit 1/adjZ here, and under D3D that was
+         * inconsequential: these are screen-aligned billboards whose four
+         * vertices share one W, and perspective interpolation with a constant W
+         * is affine, so nothing it fed could tell the difference. Our stereo
+         * path can: R_EmitVertex reads W as the vertex's real camera-space
+         * depth and shears by it, so a W that disagrees with the projection
+         * places the particle at one distance and gives it the disparity of
+         * another. The bias is 0x48 (72 units) — under 2% out at the far plane,
+         * but 25-30% at the ~250-unit range a lock-on target sits at, which is
+         * the difference between sitting behind the screen and popping out in
+         * front of it.
+         *
+         * Mono output is unchanged: the depth buffer still gets adjZ via
+         * fDepth, and the affine argument above means the rasterized pixels are
+         * identical. */
+        float fDepthRatio = reciprocal(camZ);
         float fDepth = (float)adjZ * reciprocal(invDepthDenom); // / invDepthDenom;
         unsigned char tpage = entry->tpage;
         if (g_tpageStateArray[tpage] != 4) {

@@ -130,7 +130,15 @@ void SubmitCharacterSprite(Player *player, int yOffset, int charId)
     float depthScale = g_farClipFloat + DEPTH_ADD_CHAR;
     float fDepth = (float)depth;
     float depthNorm = fDepth / depthScale;                          /* z-buffer value */
-    float rhw = 1.0f / fDepth;                                     /* perspective W */
+    /* rhw must match the W the screen X/Y above were projected with — viewZ —
+     * not the biased sort depth. See DrawCollectEffectsD3D and
+     * BuildGridClipVertex: the bias exists to push the sprite ahead of the
+     * model it belongs to in the z-buffer, and R_EmitVertex reads W as the
+     * vertex's real camera-space depth to shear by, so feeding it the biased
+     * value gives the sprite the disparity of something 0x18 (24) units nearer than
+     * where it was drawn. Mono is unaffected — all four vertices share one W,
+     * so the interpolation is affine either way. */
+    float rhw = 1.0f / (float)viewZ;                                /* perspective W */
 
     /* 0x4504C7: UV from sprite table (0x63FCDC base, +47 offset for V) */
     float uTL = g_uvLUT256[uvA];                             /* top-left U */
@@ -391,7 +399,15 @@ void RenderItemSprite(Player *player, int modelId, int itemType)
     float depthScale = g_farClipFloat + DEPTH_ADD_ITEM;
     float fDepth = (float)depth;
     float depthNorm = fDepth / depthScale;
-    float rhw = 1.0f / fDepth;
+    /* rhw must match the W the screen X/Y above were projected with — viewZ —
+     * not the biased sort depth. See DrawCollectEffectsD3D and
+     * BuildGridClipVertex: the bias exists to push the sprite ahead of the
+     * model it belongs to in the z-buffer, and R_EmitVertex reads W as the
+     * vertex's real camera-space depth to shear by, so feeding it the biased
+     * value gives the sprite the disparity of something 0x48 (72) units nearer than
+     * where it was drawn. Mono is unaffected — all four vertices share one W,
+     * so the interpolation is affine either way. */
+    float rhw = 1.0f / (float)viewZ;
 
     /* UV from sprite table:
      * U left/right from typeSlot: base(+0) and +63(=0x63FDD8)
@@ -525,7 +541,15 @@ void RenderPlayerItemEffect(Player *player, int yOffset, int effectState, int mo
     float depthScale = g_farClipFloat + DEPTH_ADD_WARP;
     float fDepth = (float)depth;
     float depthNorm = fDepth / depthScale;
-    float rhw = 1.0f / fDepth;
+    /* rhw must match the W the screen X/Y above were projected with — viewZ —
+     * not the biased sort depth. See DrawCollectEffectsD3D and
+     * BuildGridClipVertex: the bias exists to push the sprite ahead of the
+     * model it belongs to in the z-buffer, and R_EmitVertex reads W as the
+     * vertex's real camera-space depth to shear by, so feeding it the biased
+     * value gives the sprite the disparity of something 0x48 (72) units nearer than
+     * where it was drawn. Mono is unaffected — all four vertices share one W,
+     * so the interpolation is affine either way. */
+    float rhw = 1.0f / (float)viewZ;
 
     /* UV from sprite table. Per binary vertex writes at 0x4501ee/0x4501f7/
      * 0x450283/0x45028e/0x4502b2/0x4502b8/0x4502d6/0x4502de:
