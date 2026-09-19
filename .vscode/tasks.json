@@ -223,9 +223,13 @@
         {
             // Launch without a debugger attached — the quickest "does it run".
             "label": "Run deployed SONICR.EXE",
+            // --unlock: all ten characters selectable and Radiant Emerald open
+            // in course select, without needing a save. The game only reads
+            // SAVE/R0N.SAV when you enter the Load/Save screen, so a launch
+            // task is the one place this is worth having on by default.
             "type": "process",
             "command": "${config:sonicr.deployDir}/SONICR.EXE",
-            "args": ["${config:sonicr.deployDir}"],
+            "args": ["${config:sonicr.deployDir}", "--unlock"],
             "options": { "cwd": "${config:sonicr.deployDir}" },
             "problemMatcher": [],
             "presentation": { "reveal": "always", "panel": "dedicated" }
