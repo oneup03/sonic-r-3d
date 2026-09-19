@@ -1,0 +1,323 @@
+{
+    // Sonic R — Windows build/deploy tasks.
+    //
+    // Building uses the MSYS2 MINGW64 environment (gcc + SDL2 + SDL2_mixer +
+    // miniupnpc + GLEW headers). The Makefile is a unix Makefile, so every
+    // build task shells out to MSYS2 bash.
+    //
+    // These are "process" tasks, NOT "shell" tasks, and that is deliberate:
+    // a shell task on Windows gets wrapped in `powershell -Command ...`, whose
+    // quoting collides with the quotes and $(...) inside the bash command, and
+    // bash ends up receiving shredded fragments. "process" spawns bash.exe
+    // directly with the args below passed through verbatim. For the same
+    // reason the command strings below stick to double quotes and avoid
+    // single quotes entirely.
+    //
+    // Three more MSYS2 quirks are worked around here:
+    //   * bash is invoked WITHOUT -l. A login shell runs /etc/profile, which
+    //     cd's to $HOME and silently discards options.cwd. Skipping -l means
+    //     the profile never sets up the MINGW64 PATH, so each task exports it.
+    //   * MSYS2's make.exe drops TMP/TEMP from the recipe environment, so gcc
+    //     falls back to C:\WINDOWS and dies with "Cannot create temporary
+    //     file". Passing them as make command-line variables re-exports them.
+    //   * The Makefile's `CC ?= gcc` never fires, because make has a built-in
+    //     default of CC=cc. Passing CC=gcc explicitly pins the compiler.
+    //
+    // Paths to MSYS2 and the deploy directory come from .vscode/settings.json
+    // (sonicr.msysRoot / sonicr.deployDir) — edit them there, not here. Neither
+    // may contain spaces.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build (release)",
+            "detail": "make release — optimized, no sanitizers. This is what gets deployed.",
+            "type": "process",
+            "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+            "args": [
+                "-c",
+                "export PATH=/mingw64/bin:/usr/bin:$PATH; exec make -j$(nproc) release CC=gcc TMP=${config:sonicr.msysRoot}/tmp TEMP=${config:sonicr.msysRoot}/tmp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/source/sdl",
+                "env": { "MSYSTEM": "MINGW64" }
+            },
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": {
+                // gcc reports paths relative to source/sdl, not the workspace
+                // root, so the stock $gcc matcher yields unclickable problems.
+                "owner": "c",
+                "source": "gcc",
+                "fileLocation": ["relative", "${workspaceFolder}/source/sdl"],
+                "pattern": {
+                    "regexp": "^(.*?):([0-9]+):([0-9]+): +(?:fatal +)?(warning|error): +(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            }
+        },
+        {
+            "label": "Build (debug)",
+            "detail": "make all — -Werror, SONICR_DEBUG_LOG on. Output: source/sdl/build/sonicr.exe",
+            "type": "process",
+            "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+            "args": [
+                "-c",
+                "export PATH=/mingw64/bin:/usr/bin:$PATH; exec make -j$(nproc) CC=gcc TMP=${config:sonicr.msysRoot}/tmp TEMP=${config:sonicr.msysRoot}/tmp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/source/sdl",
+                "env": { "MSYSTEM": "MINGW64" }
+            },
+            "group": "build",
+            "problemMatcher": {
+                "owner": "c",
+                "source": "gcc",
+                "fileLocation": ["relative", "${workspaceFolder}/source/sdl"],
+                "pattern": {
+                    "regexp": "^(.*?):([0-9]+):([0-9]+): +(?:fatal +)?(warning|error): +(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            }
+        },
+        {
+            "label": "Build (release, software renderer)",
+            "detail": "make release SOFT=1 — software wireframe backend. SOFT has no header deps, so this cleans first.",
+            "type": "process",
+            "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+            "args": [
+                "-c",
+                "export PATH=/mingw64/bin:/usr/bin:$PATH; make release-clean && exec make -j$(nproc) release SOFT=1 CC=gcc TMP=${config:sonicr.msysRoot}/tmp TEMP=${config:sonicr.msysRoot}/tmp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/source/sdl",
+                "env": { "MSYSTEM": "MINGW64" }
+            },
+            "group": "build",
+            "problemMatcher": {
+                "owner": "c",
+                "source": "gcc",
+                "fileLocation": ["relative", "${workspaceFolder}/source/sdl"],
+                "pattern": {
+                    "regexp": "^(.*?):([0-9]+):([0-9]+): +(?:fatal +)?(warning|error): +(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            }
+        },
+        {
+            "label": "Clean (release)",
+            "type": "process",
+            "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+            "args": [
+                "-c",
+                "export PATH=/mingw64/bin:/usr/bin:$PATH; exec make release-clean"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/source/sdl",
+                "env": { "MSYSTEM": "MINGW64" }
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean (debug)",
+            "type": "process",
+            "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+            "args": [
+                "-c",
+                "export PATH=/mingw64/bin:/usr/bin:$PATH; exec make clean"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/source/sdl",
+                "env": { "MSYSTEM": "MINGW64" }
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Rebuild (release)",
+            "detail": "Clean release objects, then build release from scratch.",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Clean (release)", "Build (release)"],
+            "group": "build",
+            "problemMatcher": []
+        },
+
+        {
+            // Copies the built exe in as SONICR.EXE and re-syncs the repo's
+            // bundled DATA/ extras (NET01.RAW, the split REPLAY*.WAV voice
+            // clips). Your own game assets in the deploy dir are never touched.
+            "label": "Deploy (release)",
+            "detail": "Copy build-release/sonicr.exe + DATA/ into the deploy directory.",
+            "type": "process",
+            "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+            "args": [
+                "-c",
+                "set -e; export PATH=/usr/bin:$PATH; dst=$(cygpath -u \"${config:sonicr.deployDir}\"); mkdir -p \"$dst\"; cp -fv source/sdl/build-release/sonicr.exe \"$dst/SONICR.EXE\"; cp -R DATA/. \"$dst/\"; echo \"Deployed release build to ${config:sonicr.deployDir}\""
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "MSYSTEM": "MINGW64" }
+            },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "Deploy (debug)",
+            "detail": "Copy build/sonicr.exe (debug, with logging) in as SONICR.EXE.",
+            "type": "process",
+            "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+            "args": [
+                "-c",
+                "set -e; export PATH=/usr/bin:$PATH; dst=$(cygpath -u \"${config:sonicr.deployDir}\"); mkdir -p \"$dst\"; cp -fv source/sdl/build/sonicr.exe \"$dst/SONICR.EXE\"; cp -R DATA/. \"$dst/\"; echo \"Deployed debug build to ${config:sonicr.deployDir}\""
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "MSYSTEM": "MINGW64" }
+            },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+
+        {
+            "label": "Build + Deploy (release)",
+            "detail": "The usual loop: build release, then copy it to the deploy directory.",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Build (release)", "Deploy (release)"],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build + Deploy (debug)",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Build (debug)", "Deploy (debug)"],
+            "group": "build",
+            "problemMatcher": []
+        },
+
+        {
+            // Launch without a debugger attached — the quickest "does it run".
+            "label": "Run deployed SONICR.EXE",
+            "type": "process",
+            "command": "${config:sonicr.deployDir}/SONICR.EXE",
+            "args": ["${config:sonicr.deployDir}"],
+            "options": { "cwd": "${config:sonicr.deployDir}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "Build + Deploy + Run (release)",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Build (release)", "Deploy (release)", "Run deployed SONICR.EXE"],
+            "problemMatcher": []
+        },
+
+        {
+            // MSVC/CMake, deliberately separate from the game's MinGW build —
+            // see leiasr_shim/README.md. Needs Visual Studio with the C++
+            // workload; without it this task fails and everything else still
+            // works, LeiaSR just falls back to Side-by-Side.
+            "label": "Build LeiaSR shim",
+            "detail": "Build leiasr_shim.dll (MSVC). Requires the SR-lib submodule.",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "-S", "${workspaceFolder}/leiasr_shim",
+                "-B", "${workspaceFolder}/leiasr_shim/build",
+                "-A", "x64"
+            ],
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "Build LeiaSR shim (compile)",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build", "${workspaceFolder}/leiasr_shim/build",
+                "--config", "Release"
+            ],
+            "problemMatcher": ["$msCompile"],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            // The DLL has to sit next to SONICR.EXE — it is found by
+            // LoadLibrary at runtime, not linked, so the deploy directory is
+            // the only place that counts.
+            "label": "Deploy LeiaSR shim",
+            "detail": "Copy leiasr_shim.dll next to SONICR.EXE in the deploy directory.",
+            "type": "process",
+            "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+            "args": [
+                "-c",
+                "set -e; export PATH=/usr/bin:$PATH; dst=$(cygpath -u \"${config:sonicr.deployDir}\"); src=leiasr_shim/build/Release/leiasr_shim.dll; if [ ! -f \"$src\" ]; then echo \"leiasr_shim.dll not built - run 'Build + Deploy LeiaSR shim' first\"; exit 1; fi; cp -fv \"$src\" \"$dst/\"; echo \"Deployed leiasr_shim.dll to ${config:sonicr.deployDir}\""
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "MSYSTEM": "MINGW64" }
+            },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "Build + Deploy LeiaSR shim",
+            "detail": "Configure, compile and stage leiasr_shim.dll in one go.",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Build LeiaSR shim",
+                "Build LeiaSR shim (compile)",
+                "Deploy LeiaSR shim"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Init/update git submodules",
+            "detail": "Fetch libs/SR-lib (public repo, no credentials needed).",
+            "type": "process",
+            "command": "git",
+            "args": ["submodule", "update", "--init", "--recursive"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+
+        {
+            "label": "Install/refresh MSYS2 build dependencies",
+            "detail": "One-time setup: pacman-install the MINGW64 toolchain and libraries this build needs.",
+            "type": "process",
+            "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+            "args": [
+                "-c",
+                "export PATH=/usr/bin:$PATH; exec pacman -S --noconfirm --needed make mingw-w64-x86_64-gcc mingw-w64-x86_64-gdb mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_mixer mingw-w64-x86_64-miniupnpc mingw-w64-x86_64-glew mingw-w64-x86_64-opusfile mingw-w64-x86_64-opus mingw-w64-x86_64-libogg mingw-w64-x86_64-libvorbis mingw-w64-x86_64-flac mingw-w64-x86_64-mpg123 mingw-w64-x86_64-libxmp mingw-w64-x86_64-wavpack"
+            ],
+            "options": { "env": { "MSYSTEM": "MINGW64" } },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        }
+    ]
+}

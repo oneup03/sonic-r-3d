@@ -19,7 +19,11 @@
 
 #include "r_types.h"
 #include "r_state.h"
+#include "r_state_internal.h"
 #include "r_draw.h"
+#include "r_capture.h"
+#include "stereo.h"
+#include "aspect.h"
 #include "r_texture.h"
 #include "sonicr_types.h"
 #include "sonicr_globals.h"
@@ -50,20 +54,8 @@ extern void GL_SetTpageRGBA8(int tpage, unsigned char *rgba);
  * Internal state snapshot
  * ===================================================================== */
 
-typedef struct {
-    int          textureId;    /* tpage index, or -1 for untextured */
-    R_BlendMode  blendMode;
-    int          depthTest;
-    R_DepthFunc  depthFunc;
-    int          depthWrite;
-    R_TexEnvMode texEnv;
-    R_FilterMode filter;
-    R_CullMode   cullMode;
-    int          alphaTest;
-    float        alphaRef;
-    int          scissorEnabled;
-    int          scissorX, scissorY, scissorW, scissorH;
-} R_StateSnapshot;
+/* R_StateSnapshot now lives in r_state_internal.h so the stereo capture
+ * buffer can store one per recorded draw call. */
 
 static R_StateSnapshot s_desired;
 static R_StateSnapshot s_current;
@@ -151,6 +143,7 @@ void R_FlushState(void)
             if (tp < 52) {
                 if (g_tpagePixelBuf[tp] != NULL) {
                     if (s_glTextureDirty[tp]) {
+                        R_CaptureNoteUpload(tp);
                         GL_UploadTpage(tp);
                     }
                     glEnable(GL_TEXTURE_2D);
@@ -166,6 +159,7 @@ void R_FlushState(void)
     else if (s_desired.textureId >= 0 && s_desired.textureId < 52) {
         /* Same tpage, but check if pixel data was updated */
         if (s_glTextureDirty[s_desired.textureId]) {
+            R_CaptureNoteUpload(s_desired.textureId);
             GL_UploadTpage(s_desired.textureId);
         }
     }
@@ -443,8 +437,62 @@ void R_ResetState(void)
  * Geometry submission — immediate draw
  * ===================================================================== */
 
+/* ---------------------------------------------------------------------------
+ * Stereo shear state.
+ *
+ * s_eyeShearDir is +1 for the left eye, -1 for the right, and 0 for mono. At 0
+ * both shear expressions below evaluate to +0.0f, so the mono path is
+ * arithmetically identical to the pre-stereo code — not merely close.
+ *
+ * s_emit2D selects which of the two shear formulas applies; it is set per
+ * captured command by R_ReplayPrimitive.
+ * ------------------------------------------------------------------------- */
+static float s_eyeShearDir = 0.0f;
+static int   s_emitLayer   = R_LAYER_WORLD;
+
+/* Full-screen overlay scope — stricter than the 2D/HUD one.
+ *
+ * Distinct from the HUD because these are not content you place, they are
+ * surfaces that must lie exactly ON the display:
+ *
+ *   - Pinned to ZERO disparity, not HUD depth. A split-screen separator is a
+ *     divider between two viewports; giving it any parallax makes it hover in
+ *     front of or sink behind the very views it is dividing, and it has no
+ *     business moving when the player retunes the HUD.
+ *   - Exempt from the widescreen 2D compression. Their job is to COVER the
+ *     screen — a separator that stops short of the edges leaves the split
+ *     unmarked, and a fade iris that does not reach the corners leaves the
+ *     scene showing through during a transition.
+ *
+ * Read by R_EmitVertex, so it has to be declared before it. */
+static int s_inOverlay = 0;
+static int s_inOverlayDepth = 0;
+
+void R_SetEyeShear(float dir)
+{
+    s_eyeShearDir = dir;
+}
+
 /* Emit a single vertex via GL immediate mode.
- * Uses glVertex4f with W=1/RHW for perspective-correct interpolation. */
+ * Uses glVertex4f with W=1/RHW for perspective-correct interpolation.
+ *
+ * The vertices arriving here are pre-transformed screen-space positions with
+ * rhw = 1/Z, so after the multiply below x is already clip-space x and w is
+ * already clip-space w. That makes the standard clip-space stereo shear
+ *
+ *     x_clip += dir * separation * (w_clip - convergence)
+ *
+ * a direct substitution — no projection matrix to rebuild, no camera to move,
+ * and no FoV compensation (the clip-space form is FoV-independent). Geometry
+ * at w == convergence is unshifted and lands on the screen plane; nearer
+ * geometry gets crossed disparity and pops out.
+ *
+ * 2D/HUD quads carry a fixed shallow z that has nothing to do with world
+ * depth, so feeding them the world formula would fling them far in front of
+ * the screen. They instead take a direct NDC offset scaled by separation:
+ * hudDepth 0 pins them on the screen plane, +1 puts them at exactly the
+ * background disparity (i.e. as far away as the sky). Scaling by separation is
+ * what stops the HUD diverging past the background at any separation setting. */
 static inline void R_EmitVertex(const RenderVertex *v)
 {
     uint32_t argb = v->color;
@@ -456,7 +504,180 @@ static inline void R_EmitVertex(const RenderVertex *v)
     glTexCoord2f(v->u, v->v);
 
     float w = (v->rhw > 0.0f) ? (1.0f / v->rhw) : 1.0f;
-    glVertex4f(v->sx * w, v->sy * w, v->sz * w, w);
+    float sx = v->sx;
+
+    /* rhw == 1 is the Direct3D "already transformed, no perspective divide
+     * needed" convention, which this decompile inherits: the menu wallpaper
+     * (RenderWavingMenuBackground) and similar full-screen 2D layers are built
+     * that way. Treat them as screen-space regardless of what the caller
+     * declared.
+     *
+     * Without this they are handed w = 1 against a convergence of a few
+     * hundred, so (1 - conv/w) is hugely negative and they get pinned at the
+     * maximum pop-out — a flat sheet floating well in front of the screen,
+     * which reads as inverted depth. The title screen escapes it only because
+     * it builds real per-vertex depth (title_render.c: rhw = 1/z_cam).
+     *
+     * A world vertex can never collide with this: w == 1 is far closer than the
+     * near clip, so nothing in the scene is ever submitted at that depth. */
+    const int screenSpace = (v->rhw > 0.999999f && v->rhw < 1.000001f);
+    const int overlay = (s_emitLayer == R_LAYER_OVERLAY);
+    /* Overlays are exempt from the 2D compression — they must span the screen. */
+    const int is2D = !overlay && (s_emitLayer == R_LAYER_HUD || screenSpace);
+
+    /* Widescreen: the world gets the wider frustum, but 2D content does not.
+     *
+     * HUD, menus and full-screen backdrops are authored in the 640x480 4:3
+     * virtual space. Once the viewport stops being 4:3 that space is stretched
+     * to fill it, which distorts every sprite and pushes HUD elements out to
+     * the corners. Compressing screen-space geometry back toward the centre by
+     * the aspect ratio keeps it at its designed proportions, pillarboxed inside
+     * the wider frame, while the world keeps the extra field of view.
+     *
+     * Exactly 1.0 (and skipped) at 4:3, so the original path is untouched. */
+    if (is2D) {
+        float s2d = Aspect2DScale();
+        if (s2d != 1.0f) {
+            float cx = (float)g_screenWidth * 0.5f;
+            sx = cx + (sx - cx) * s2d;
+        }
+    }
+
+    float x = sx * w;
+
+    if (s_eyeShearDir != 0.0f) {
+        /* Work out the shift in NDC first, clamp it there, then convert.
+         *
+         * 3D:  shift = sep * (1 - convergence/w). Settles at +sep as
+         *      w -> infinity (that IS the background disparity, by
+         *      definition) and goes negative — crossed, i.e. popping out of
+         *      the screen — for anything nearer than convergence.
+         * 2D:  a flat NDC offset; the quad's z is a draw-order artefact, not a
+         *      world depth, so the world formula would fling it off-screen.
+         */
+        float shiftNdc;
+        if (overlay) {
+            /* Exactly on the screen plane, whatever the HUD is set to. */
+            shiftNdc = 0.0f;
+        } else if (s_emitLayer == R_LAYER_HUD) {
+            /* Declared overlay — HUD, menus, UI. Sits where the HUD-depth
+             * setting puts it, screen plane by default, because it is text and
+             * gauges you read rather than scenery you look past. */
+            shiftNdc = g_s3dSeparation * g_s3dHudDepth;
+        } else if (screenSpace) {
+            /* Full-screen 2D layer. Park it at infinity — the same disparity
+             * the sky gets — rather than at the HUD plane.
+             *
+             * It is a backdrop, and a backdrop reads most comfortably when the
+             * eyes converge on it exactly as they would on a distant scene:
+             * nothing is asked to sit in front of the screen, and anything
+             * drawn over it (which lands at HUD depth or nearer) is correctly
+             * ordered in front. Putting it at the screen plane instead leaves
+             * the eyes working harder for no depth payoff. */
+            shiftNdc = g_s3dSeparation * S3D_BACKDROP_DEPTH;
+        } else {
+            shiftNdc = g_s3dSeparation * (1.0f - g_s3dConvergence / w);
+
+            /* Asymmetric clamp — pop-out is not divergence.
+             *
+             * The far side needs no clamp: the formula approaches +sep on its
+             * own, and sep is already bounded to a fusible value. The near
+             * side has no such limit — it runs to -infinity as w -> 0, and
+             * this renderer really does submit near-plane geometry (the logo
+             * screens draw full-screen quads through the 3D path at w ~ 1.1,
+             * which without this clamp shift by over three screen widths and
+             * vanish). Bounding crossed disparity to a few times the
+             * background keeps genuine pop-out while making that impossible. */
+            const float maxPop = g_s3dSeparation * S3D_MAX_POPOUT;
+            if (shiftNdc < -maxPop) {
+                shiftNdc = -maxPop;
+            }
+        }
+
+        /* NDC -> pre-modelview units. The modelview applies
+         * x_ndc = (2 / g_screenWidth) * x / w, so going the other way costs a
+         * factor of w * g_screenWidth/2. Leaving this out makes the shear 320x
+         * too small, which presents as a flat image with stereo "on". */
+        x += s_eyeShearDir * shiftNdc * w * ((float)g_screenWidth * 0.5f);
+    }
+
+    glVertex4f(x, v->sy * w, v->sz * w, w);
+}
+
+/* Draw one primitive immediately, bypassing the recorder. Used by the replay
+ * loop, which has already restored state and set the eye shear. */
+void R_ReplayPrimitive(const RenderVertex *v, int count, int layer)
+{
+    s_emitLayer = layer;
+    glBegin(GL_TRIANGLE_FAN);
+    for (int i = 0; i < count; i++) {
+        R_EmitVertex(&v[i]);
+    }
+    glEnd();
+    s_emitLayer = R_LAYER_WORLD;
+}
+
+void R_ReplayClearColor(const float rgba[4])
+{
+    glClearColor(rgba[0], rgba[1], rgba[2], rgba[3]);
+    glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void R_ReplayClearDepth(void)
+{
+    glClear(GL_DEPTH_BUFFER_BIT);
+}
+
+/* Expose the live state snapshot to the capture buffer. */
+void R_StateCapture(R_StateSnapshot *dst)
+{
+    *dst = s_desired;
+}
+
+void R_StateRestore(const R_StateSnapshot *src)
+{
+    s_desired = *src;
+}
+
+/* s_in2D tags whichever draw is currently in flight as a 2D/HUD primitive.
+ *
+ * It cannot be inferred from the vertex data. Sonic R draws its HUD as real
+ * geometry at a shallow camera depth (w ~ 2..40) through the same
+ * R_DrawQuad/R_DrawTriFan path as the world (w ~ 200..10000) — there is no
+ * rhw == 1 "already projected" marker to key off, and the two ranges are close
+ * enough that a depth threshold would misclassify near-camera scenery. The
+ * R_DrawQuad2D* helpers only cover seven call sites in screen_misc.c (the QR
+ * code and matchmaker UI), nowhere near the HUD.
+ *
+ * So the caller declares it, by bracketing HUD drawing in R_Begin2D/R_End2D.
+ * Nested because the HUD entry points call each other. */
+static int s_in2D = 0;
+static int s_in2DDepth = 0;
+
+void R_Begin2D(void)
+{
+    s_in2DDepth++;
+    s_in2D = 1;
+}
+
+void R_End2D(void)
+{
+    if (s_in2DDepth > 0 && --s_in2DDepth == 0) {
+        s_in2D = 0;
+    }
+}
+
+void R_BeginOverlay(void)
+{
+    s_inOverlayDepth++;
+    s_inOverlay = 1;
+}
+
+void R_EndOverlay(void)
+{
+    if (s_inOverlayDepth > 0 && --s_inOverlayDepth == 0) {
+        s_inOverlay = 0;
+    }
 }
 
 void R_DrawTriFan(const RenderVertex *v, int count)
@@ -465,13 +686,30 @@ void R_DrawTriFan(const RenderVertex *v, int count)
         return;
     }
 
+    /* Resolve the layer HERE, while the scopes are still open, and carry it
+     * with the primitive. At replay time they are all closed. */
+    const int layer = s_inOverlay ? R_LAYER_OVERLAY
+                    : (s_in2D     ? R_LAYER_HUD
+                                  : R_LAYER_WORLD);
+
+    /* Stereo: hand the primitive to the recorder instead of drawing it. The
+     * whole frame is replayed once per eye at present time. */
+    if (g_rCaptureActive && !g_rCaptureReplaying) {
+        if (R_CaptureDraw(v, count, layer)) {
+            return;
+        }
+        /* Recorder refused (allocation failure) — fall through and draw. */
+    }
+
     R_FlushState();
 
+    s_emitLayer = layer;
     glBegin(GL_TRIANGLE_FAN);
     for (int i = 0; i < count; i++) {
         R_EmitVertex(&v[i]);
     }
     glEnd();
+    s_emitLayer = R_LAYER_WORLD;
 }
 
 void R_DrawTri(const RenderVertex v[3])
@@ -501,7 +739,9 @@ void R_DrawQuad2D(float x0, float y0, float x1, float y1,
     v[1] = (RenderVertex){ x1, y0, normZ, rhw, color, 0, u1, v0 };
     v[2] = (RenderVertex){ x1, y1, normZ, rhw, color, 0, u1, v1 };
     v[3] = (RenderVertex){ x0, y1, normZ, rhw, color, 0, u0, v1 };
+    s_in2D = 1;                 /* screen-space: takes the HUD stereo shear */
     R_DrawQuad(v);
+    s_in2D = 0;
 }
 
 void R_DrawQuad2DSolid(float x0, float y0, float x1, float y1,
@@ -520,7 +760,9 @@ void R_DrawQuad2DSolid(float x0, float y0, float x1, float y1,
     v[1] = (RenderVertex){ x1, y0, normZ, rhw, color, 0, 0.0f, 0.0f };
     v[2] = (RenderVertex){ x1, y1, normZ, rhw, color, 0, 0.0f, 0.0f };
     v[3] = (RenderVertex){ x0, y1, normZ, rhw, color, 0, 0.0f, 0.0f };
+    s_in2D = 1;                 /* screen-space: takes the HUD stereo shear */
     R_DrawQuad(v);
+    s_in2D = 0;
 
     /* Restore previous texture state */
     s_desired.textureId = savedTex;
@@ -618,8 +860,24 @@ void R_ClearAndReset(void)
 
 void R_ClearDepth(void)
 {
+    if (R_CaptureClearDepth()) {
+        return;
+    }
     R_FlushState();
     glClear(GL_DEPTH_BUFFER_BIT);
+}
+
+/* Colour clear, routed through the recorder so it is replayed per eye.
+ * RenderBackground used to call glClearColor/glClear directly; going through
+ * here is what lets each eye's framebuffer get its own clear. */
+void R_ClearColor(float r, float g, float b, float a)
+{
+    if (R_CaptureClearColor(r, g, b, a)) {
+        return;
+    }
+    R_FlushState();
+    glClearColor(r, g, b, a);
+    glClear(GL_COLOR_BUFFER_BIT);
 }
 
 #endif /* !SONICR_SOFT_RENDER */

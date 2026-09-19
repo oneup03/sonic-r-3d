@@ -22,3 +22,6 @@ update-repo.sh
 
 # OS / editor cruft
 .DS_Store
+
+# LeiaSR shim build output (MSVC/CMake; built separately from the game)
+leiasr_shim/build/

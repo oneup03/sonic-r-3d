@@ -8,6 +8,7 @@
  */
 
 #include "sonicr_types.h"
+#include "stereo.h"
 #include "sonicr_globals.h"
 #include "sonicr_functions.h"
 #include "sonicr_paths.h"
@@ -402,6 +403,11 @@ int LoadGameSettings(void)
         for (int i = 0; i < 8; i++) {
             g_optCfgRomData[i] = buf[24 + i];
         }
+
+        /* Stereo-3D settings live in the 8 tail slots the original format
+         * never used (buf[32..39]); a pre-stereo INF leaves them zero and
+         * stereoConfigLoad keeps the compiled-in defaults. */
+        stereoConfigLoad(buf, 40);
     }
     return 1;
 }
@@ -446,6 +452,7 @@ void SaveGameSettings(void)
     for (int i = 0; i < 8; i++) {
         buf[24 + i] = g_optCfgRomData[i];
     }
+    stereoConfigSave(buf, 40);
 
     bswap32_arr(buf, 40);
     FILE *fp = fOpen("SONICR.INF", "wb");

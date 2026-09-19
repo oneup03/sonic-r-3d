@@ -1,0 +1,167 @@
+{
+    // Debug/launch configs for the Windows (MINGW64) build.
+    //
+    // Requires the C/C++ extension (ms-vscode.cpptools) — these use the cppdbg
+    // adapter driving MSYS2's mingw64 gdb.exe. Both build targets compile with
+    // -g, so the deployed exe is debuggable as-is.
+    //
+    // The game locates its assets relative to its working directory, so every
+    // config sets cwd to the deploy directory (sonicr.deployDir in
+    // settings.json) and additionally passes it as the data-dir argument.
+    //
+    // Note: debugging a fullscreen OpenGL app can leave you staring at a frozen
+    // fullscreen window when you hit a breakpoint. The fullscreen configs are
+    // here when you want them, but prefer the windowed ones for breakpoint work.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug: build + deploy debug, run",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "Build + Deploy (debug)",
+            "program": "${config:sonicr.deployDir}/SONICR.EXE",
+            "args": ["${config:sonicr.deployDir}"],
+            "cwd": "${config:sonicr.deployDir}",
+            "stopAtEntry": false,
+            "environment": [],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${config:sonicr.msysRoot}/mingw64/bin/gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "sourceFileMap": {
+                "/c/Users": "C:/Users"
+            }
+        },
+        {
+            "name": "Debug: build + deploy release, run",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "Build + Deploy (release)",
+            "program": "${config:sonicr.deployDir}/SONICR.EXE",
+            "args": ["${config:sonicr.deployDir}"],
+            "cwd": "${config:sonicr.deployDir}",
+            "stopAtEntry": false,
+            "environment": [],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${config:sonicr.msysRoot}/mingw64/bin/gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "sourceFileMap": {
+                "/c/Users": "C:/Users"
+            }
+        },
+        {
+            // Runs straight out of source/sdl/build/ without overwriting the
+            // deployed SONICR.EXE — the fast inner loop.
+            "name": "Debug: run in place (no deploy)",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "Build (debug)",
+            "program": "${workspaceFolder}/source/sdl/build/sonicr.exe",
+            "args": ["${config:sonicr.deployDir}"],
+            "cwd": "${config:sonicr.deployDir}",
+            "stopAtEntry": false,
+            "environment": [],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${config:sonicr.msysRoot}/mingw64/bin/gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "sourceFileMap": {
+                "/c/Users": "C:/Users"
+            }
+        },
+        {
+            "name": "Debug: run in place, fullscreen + unlock",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "Build (debug)",
+            "program": "${workspaceFolder}/source/sdl/build/sonicr.exe",
+            "args": ["--fullscreen", "--unlock", "${config:sonicr.deployDir}"],
+            "cwd": "${config:sonicr.deployDir}",
+            "stopAtEntry": false,
+            "environment": [],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${config:sonicr.msysRoot}/mingw64/bin/gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "sourceFileMap": {
+                "/c/Users": "C:/Users"
+            }
+        },
+        {
+            // Prompts for the command line (e.g. "--unlock --host 192.168.1.20").
+            // The data directory is appended automatically.
+            "name": "Debug: run in place, custom args…",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "Build (debug)",
+            "program": "${workspaceFolder}/source/sdl/build/sonicr.exe",
+            "args": ["${input:sonicrArgs}", "${config:sonicr.deployDir}"],
+            "cwd": "${config:sonicr.deployDir}",
+            "stopAtEntry": false,
+            "environment": [],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${config:sonicr.msysRoot}/mingw64/bin/gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "sourceFileMap": {
+                "/c/Users": "C:/Users"
+            }
+        },
+        {
+            // For a copy you started yourself (e.g. the second half of a
+            // two-instance network test).
+            "name": "Attach to running SONICR.EXE",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "${config:sonicr.deployDir}/SONICR.EXE",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${config:sonicr.msysRoot}/mingw64/bin/gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "sonicrArgs",
+            "type": "promptString",
+            "description": "Extra SONICR.EXE arguments (data dir is appended automatically)",
+            "default": "--unlock"
+        }
+    ]
+}

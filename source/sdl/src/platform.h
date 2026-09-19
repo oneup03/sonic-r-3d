@@ -19,6 +19,14 @@
  * Returns 0 on success, non-zero on failure (caller exits). */
 int platform_init(int width, int height, int fullscreen, const char *title);
 
+/* Desktop resolution in PHYSICAL pixels, or 0x0 if it can't be determined.
+ * Valid only after platform_init (it needs SDL's video subsystem up). */
+void platform_get_desktop_size(int *w, int *h);
+
+/* Native OS window handle (HWND on Windows), NULL where not applicable.
+ * Used by the LeiaSR weaver. */
+void *platform_native_window_handle(void);
+
 /* Shutdown: destroy window, free resources. */
 void platform_shutdown(void);
 

@@ -641,7 +641,12 @@ void RenderHUD(void)
 
         if (g_demoMode == DEMO_NONE) {
             int hudPlayerIdx = (g_isNetworkGame != 0) ? g_localPlayerIndex : (int)vp;
+            /* Timer, lap times, position, minimap, reverse indicator —
+             * all screen-space. Drawn as shallow-depth quads, so stereo has to
+             * be told explicitly that they are overlay rather than world. */
+            R_Begin2D();
             DrawTimerAndStatus(hudPlayerIdx);
+            R_End2D();
         }
 
         /* Track draws before characters — matches old batch flush order.
@@ -667,7 +672,9 @@ void RenderHUD(void)
             AnimateBalloons();
         }
 
+        R_Begin2D();
         DrawItemBoxD3D();
+        R_End2D();
 
         DrawCollectEffectsD3D(g_collectEffectBuf);
 

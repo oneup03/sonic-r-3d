@@ -7,6 +7,7 @@
 #include "sonicr_types.h"
 #include "sonicr_globals.h"
 #include "sonicr_functions.h"
+#include "r_compose.h"
 
 /* COM_CALL and vtable offsets defined in sonicr_types.h */
 #define IUNKNOWN_RELEASE 0x08   /* alias for readability */
@@ -148,6 +149,15 @@ void Shutdown(void)
 
     D3DAppDestroy();
     DebugLog("           D3DAppDestroy done\n");
+
+    /* Stereo backend last, but still before exit: on a switchable-lens LeiaSR
+     * panel this is what hands the lens back — the hint is a preference the SR
+     * service ORs across every running application, so exiting without
+     * releasing it leaves the panel lenticular over the desktop. The SR
+     * runtime's GL resources are keyed to a context that is still current
+     * here, which is the other reason it cannot wait until later. */
+    R_StereoShutdown();
+    DebugLog("           R_StereoShutdown done\n");
 
     DebugLog("           done\n");
 

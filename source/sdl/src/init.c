@@ -7,6 +7,7 @@
 #include "sonicr_types.h"
 #include "sonicr_globals.h"
 #include "sonicr_functions.h"
+#include "aspect.h"
 #include "sonicr_paths.h"
 #include "gamepad_buttons.h"    /* GCBTN_* — button indices for the pad defaults */
 #include <math.h>
@@ -406,7 +407,8 @@ void AnimateTrackObjects(void)
  */
 void SetScreenDimensions(void)
 {
-    int scaleX = (g_screenWidth << 8) / 0x140;
+    /* 0x140 was the 4:3 constant; the divisor is now aspect-derived. */
+    int scaleX = (g_screenWidth << 8) / AspectProjScaleXDivisor();
     DebugLog("SetScreenDimensions\n");
     g_dispCenterX = g_screenWidth / 2;
     g_dispCenterY = g_screenHeight / 2;
@@ -472,7 +474,7 @@ void ComputeViewportBounds(void)
     g_dispClipTop    = g_dispCenterY - g_dispHalfHeight / 2;
     g_dispClipRight  = g_dispCenterX + g_dispHalfWidth / 2 - 1;
     g_dispClipBottom = g_dispCenterY + g_dispHalfHeight / 2 - 1;
-    g_dispProjScaleX = (g_dispHalfWidth << 8) / 0x140;
+    g_dispProjScaleX = (g_dispHalfWidth << 8) / AspectProjScaleXDivisor();
     g_dispProjScaleY = (g_dispHalfHeight << 8) / 0xF0;
 }
 
@@ -667,7 +669,13 @@ void SetupViewportConfig(void)
 
     if (numVP > 0) {
         int scaleXref = g_screenWidth * 0x100;
-        int scaleXdiv = g_screenWidth * 0x140;
+        /* 0x140 was the 4:3 constant. This has to track the same divisor
+         * SetScreenDimensions and ComputeViewportBounds use, or the
+         * per-viewport projection scale used during a race disagrees with the
+         * full-screen one used by menus and the HUD overlay slots — and every
+         * consumer that reasons about aspect from projScaleX (DrawTexturedQuad)
+         * gets a value from the wrong ratio. */
+        int scaleXdiv = g_screenWidth * AspectProjScaleXDivisor();
         int scaleYref = g_screenHeight * 0x100;
         int scaleYdiv = g_screenHeight * 0xF0;
         int sortBase = 0;

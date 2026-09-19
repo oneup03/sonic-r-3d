@@ -15,6 +15,7 @@
 
 #include "sonicr_types.h"
 #include "sonicr_globals.h"
+#include "aspect.h"
 #include "sonicr_functions.h"
 #include "r_types.h"
 #include "r_state.h"
@@ -90,7 +91,22 @@ void RenderIrisQuad(float x0, float y0, float x1, float y1,
         { x3, y3, z, invZ, black, 0, 0.5f,       0.5100098f },
     };
 
+    /* Screen-space overlay, not scenery.
+     *
+     * This one primitive draws BOTH the split-screen separator bars
+     * (DrawSplitBorder) and the fade/transition iris (RenderFadeOverlay, called
+     * from ~22 places), and both are surfaces drawn ON the display rather than
+     * objects in the scene. The quads carry a very shallow depth — 5.1 for the
+     * separator — so under the world shear they get the maximum pop-out clamp
+     * and float way out in front of the screen.
+     *
+     * R_BeginOverlay rather than R_Begin2D: these are pinned to the screen
+     * plane outright, not to the user's HUD depth. A divider between two
+     * viewports must not hover in front of them, and must not move when the
+     * HUD is retuned. Tagging here covers every call site at once. */
+    R_BeginOverlay();
     R_DrawQuad(v);
+    R_EndOverlay();
 }
 
 /**
@@ -131,6 +147,20 @@ void RenderFadeOverlay(void)
     fadeScale = 0x100 - fadeScale;
     const int *tablePtr = s_irisVerts;
 
+    /* The iris is built from g_projScaleXCurrent, which carries the widescreen
+     * narrowing — so in 16:9 the ring would be computed smaller than the screen
+     * and leave the scene visible through the corners during a transition.
+     * Overlays are drawn un-narrowed (see R_BeginOverlay), so divide it back
+     * out here and work in the full virtual width. Identity at 4:3.
+     *
+     * The consequence is that the iris becomes elliptical rather than circular
+     * on a wide display. That is the right trade: an ellipse that covers the
+     * screen beats a circle that does not. */
+    const float irisA2d = Aspect2DScale();
+    const int projScaleXFull = (irisA2d > 0.0f)
+        ? (int)((float)g_projScaleXCurrent / irisA2d)
+        : g_projScaleXCurrent;
+
     /* First loop: compute inner ring screen positions (32 vertices) */
     int screenX[64];
     int screenY[64];
@@ -140,7 +170,7 @@ void RenderFadeOverlay(void)
         int rotX = cosVal * scaledX;
 
         screenX[i] = (((rotX - scaledY * sinVal) >> 6) *
-                      g_projScaleXCurrent >> 0x14) + g_screenCenterX;
+                      projScaleXFull >> 0x14) + g_screenCenterX;
         screenY[i] = g_screenCenterY -
                      (((scaledY * cosVal + scaledX * sinVal) >> 6) *
                       g_projScaleY >> 0x14);
@@ -162,7 +192,7 @@ void RenderFadeOverlay(void)
         int projY = (int)((rotated2 + rot2Sign * -0x1000) -
                    (unsigned int)((rot2Sign << 11) < 0)) >> 12;
 
-        int sx = projX * g_projScaleXCurrent;
+        int sx = projX * projScaleXFull;
         int sxSign = sx >> 31;
         screenX[i] = ((int)((sx + sxSign * -0x200) -
                      (unsigned int)((sxSign << 8) < 0)) >> 9) + g_screenCenterX;

@@ -7,6 +7,7 @@
 
 #include "sonicr_types.h"
 #include "sonicr_globals.h"
+#include "aspect.h"
 #include "sonicr_functions.h"
 #include "r_types.h"
 #include "r_state.h"
@@ -74,14 +75,26 @@ void DrawTexturedQuad(int xPos, int yPos, int depth, int width, int height,
     // 1 / 256 
     #define UV_SCALE_Q 0.00390625f
 
-    float sx = (float)g_clipLeft + (float)xPos * (float)g_projScaleXCurrent * POS_SCALE;
-    float sy = (float)g_clipTop  + (float)yPos * (float)g_projScaleY * POS_SCALE;
-    float sx2 = sx + (float)width  * (float)g_projScaleXCurrent * POS_SCALE;
-    float sy2 = sy + (float)height * (float)g_projScaleY * POS_SCALE;
+    /* Position from the TRUE viewport edge, never the stereo-widened
+     * g_clipLeft — see g_clipLeftTrue in render_gl.c. */
+    /* UI is authored in the 640x480 4:3 space, and g_projScaleXCurrent already
+     * carries the widescreen narrowing. Divide it back out so every
+     * screen-space layer — this, the menu wallpaper, the HUD — arrives at the
+     * backend in the same 4:3 space and gets ONE aspect correction there,
+     * centred. Applying the narrowing here as well would compress UI twice,
+     * and toward the left edge rather than the middle. Identity at 4:3. */
+    float a2d = Aspect2DScale();
+    float uiScaleX = (float)g_projScaleXCurrent * POS_SCALE / ((a2d > 0.0f) ? a2d : 1.0f);
+    float uiScaleY = (float)g_projScaleY * POS_SCALE;
 
-    /* Clip test */
-    if (sx2 < (float)g_clipLeft || sx > (float)g_clipRight ||
-        sy2 < (float)g_clipTop  || sy > (float)g_clipBottom)
+    float sx = (float)g_clipLeftTrue + (float)xPos * uiScaleX;
+    float sy = (float)g_clipTop      + (float)yPos * uiScaleY;
+    float sx2 = sx + (float)width  * uiScaleX;
+    float sy2 = sy + (float)height * uiScaleY;
+
+    /* Clip test, also against the true bounds. */
+    if (sx2 < (float)g_clipLeftTrue || sx > (float)g_clipRightTrue ||
+        sy2 < (float)g_clipTop      || sy > (float)g_clipBottom)
     {
         return;
     }
@@ -110,7 +123,13 @@ void DrawTexturedQuad(int xPos, int yPos, int depth, int width, int height,
         { sx2, sy2, z, rhw, color, 0, u1, v1 },
         { sx,  sy2, z, rhw, color, 0, u0, v1 },
     };
+    /* Every HUD sprite, menu item and glyph in the game funnels through here,
+     * drawn as a real quad at a shallow depth. Without this tag the stereo
+     * shear treats it as world geometry and flings it out in front of the
+     * screen; with it, the whole 2D layer sits at HUD depth. */
+    R_Begin2D();
     R_DrawQuad(v);
+    R_End2D();
     #undef POS_SCALE
     #undef UV_SCALE_Q
 }

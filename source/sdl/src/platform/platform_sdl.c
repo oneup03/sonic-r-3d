@@ -16,11 +16,31 @@
 
 #include <SDL.h>
 #include <SDL_mixer.h>
+#include <SDL_syswm.h>
 #include <stdio.h>
 #include <string.h>
 #include "platform.h"
+#include "stereo.h"
+#include "r_compose.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#endif
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+/* Resolved via GetProcAddress rather than the headers: MinGW's user32/shcore
+ * prototypes for the per-monitor-v2 API are inconsistent across w32api
+ * versions, and we need to degrade gracefully on pre-1703 Windows anyway. */
+#ifndef DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ((DPI_AWARENESS_CONTEXT)-4)
+#endif
+
+typedef BOOL                  (WINAPI *PFN_SetProcessDpiAwarenessContext)(DPI_AWARENESS_CONTEXT);
+typedef DPI_AWARENESS_CONTEXT (WINAPI *PFN_GetThreadDpiAwarenessContext)(void);
+typedef DPI_AWARENESS         (WINAPI *PFN_GetAwarenessFromDpiAwarenessContext)(DPI_AWARENESS_CONTEXT);
+typedef HRESULT               (WINAPI *PFN_SetProcessDpiAwareness)(int /*PROCESS_DPI_AWARENESS*/);
 #endif
 
 /* =====================================================================
@@ -428,12 +448,129 @@ static unsigned char SDLScancodeToDIK(SDL_Scancode sc)
  * Platform API implementation
  * ===================================================================== */
 
+/* Declare the process per-monitor-DPI-aware (v2) BEFORE SDL touches video.
+ *
+ * The stereo-3D output modes that select an eye from the output pixel
+ * coordinate — row/column interlaced, checkerboard, and the LeiaSR lenticular
+ * weave — only work when the backbuffer lands 1:1 on physical panel pixels. On
+ * a display at >100% Windows scale, a non-aware process gets its window (and
+ * therefore the backbuffer) mapped into a virtualized sub-region and stretched
+ * back up afterwards. That stretch happens after the last shader, so it cannot
+ * be corrected for: the line pattern softens and the 3D collapses.
+ *
+ * Process DPI awareness is one-shot — the first declaration wins and later
+ * calls silently fail. SDL declares it during SDL_Init(SDL_INIT_VIDEO), so
+ * this has to run first.
+ *
+ * Ported from perfect_dark_3D (port/fast3d/gfx_sdl2.cpp). */
+static void platform_declare_dpi_awareness(void)
+{
+#ifdef _WIN32
+    HMODULE user32 = LoadLibraryA("user32.dll");
+    int declared = 0;
+
+    if (user32) {
+        PFN_SetProcessDpiAwarenessContext pSetCtx =
+            (PFN_SetProcessDpiAwarenessContext)(void *)GetProcAddress(
+                user32, "SetProcessDpiAwarenessContext");
+        if (pSetCtx) {
+            declared = pSetCtx(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) != FALSE;
+        }
+    }
+
+    if (!declared) {
+        /* Windows 8.1 .. pre-1703: no per-monitor-v2 context API. */
+        HMODULE shcore = LoadLibraryA("shcore.dll");
+        if (shcore) {
+            PFN_SetProcessDpiAwareness pSetAwareness =
+                (PFN_SetProcessDpiAwareness)(void *)GetProcAddress(
+                    shcore, "SetProcessDpiAwareness");
+            if (pSetAwareness) {
+                declared = SUCCEEDED(pSetAwareness(2 /* PROCESS_PER_MONITOR_DPI_AWARE */));
+            }
+            FreeLibrary(shcore);
+        }
+    }
+
+    if (!declared) {
+        /* Vista .. Windows 8: system-DPI-aware is the best available. */
+        declared = SetProcessDPIAware() != FALSE;
+    }
+
+    /* Read the awareness back — a failed declaration is otherwise silent, and
+     * "is this process actually per-monitor aware?" is the first question to
+     * answer when an interlaced mode or a weave looks soft on a scaled
+     * display. */
+    const char *awareness = "unknown";
+    if (user32) {
+        PFN_GetThreadDpiAwarenessContext pGetCtx =
+            (PFN_GetThreadDpiAwarenessContext)(void *)GetProcAddress(
+                user32, "GetThreadDpiAwarenessContext");
+        PFN_GetAwarenessFromDpiAwarenessContext pFromCtx =
+            (PFN_GetAwarenessFromDpiAwarenessContext)(void *)GetProcAddress(
+                user32, "GetAwarenessFromDpiAwarenessContext");
+        if (pGetCtx && pFromCtx) {
+            switch (pFromCtx(pGetCtx())) {
+                case DPI_AWARENESS_UNAWARE:           awareness = "unaware"; break;
+                case DPI_AWARENESS_SYSTEM_AWARE:      awareness = "system"; break;
+                case DPI_AWARENESS_PER_MONITOR_AWARE: awareness = "per-monitor"; break;
+                default:                              awareness = "invalid"; break;
+            }
+        }
+        FreeLibrary(user32);
+    }
+    fprintf(stderr, "platform: DPI awareness = %s (declared=%d)\n", awareness, declared);
+#endif
+}
+
+/* Desktop resolution of the display the game will open on, in physical pixels
+ * (physical because platform_declare_dpi_awareness() already ran). Falls back
+ * to the caller's requested size if SDL can't report a mode. */
+void platform_get_desktop_size(int *w, int *h)
+{
+    SDL_DisplayMode mode;
+
+    if (SDL_GetDesktopDisplayMode(0, &mode) == 0 && mode.w > 0 && mode.h > 0) {
+        *w = mode.w;
+        *h = mode.h;
+        return;
+    }
+    fprintf(stderr, "platform: SDL_GetDesktopDisplayMode failed: %s\n", SDL_GetError());
+    *w = 0;
+    *h = 0;
+}
+
+/* Native window handle (HWND on Windows), for the LeiaSR weaver. NULL when
+ * unavailable or not applicable to this platform. */
+void *platform_native_window_handle(void)
+{
+#ifdef _WIN32
+    SDL_SysWMinfo wmi;
+
+    if (!g_sdlWindow) {
+        return NULL;
+    }
+    SDL_VERSION(&wmi.version);
+    if (!SDL_GetWindowWMInfo(g_sdlWindow, &wmi)) {
+        fprintf(stderr, "platform: SDL_GetWindowWMInfo failed: %s\n", SDL_GetError());
+        return NULL;
+    }
+    return (void *)wmi.info.win.window;
+#else
+    return NULL;
+#endif
+}
+
+/* width/height may be 0 to mean "use the desktop resolution" — see platform.h.
+ * Resolving that needs SDL's video subsystem, so it happens after SDL_Init. */
 int platform_init(int width, int height, int fullscreen, const char *title)
 {
-    s_fbWidth = width;
-    s_fbHeight = height;
     memset(s_keystate, 0, sizeof(s_keystate));
     s_quitRequested = 0;
+
+    /* Must precede SDL_Init(SDL_INIT_VIDEO) — SDL declares awareness there and
+     * the first declaration is the one that sticks. */
+    platform_declare_dpi_awareness();
 
     SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
 #ifdef _WIN32
@@ -441,6 +578,9 @@ int platform_init(int width, int height, int fullscreen, const char *title)
      * hint (SDL 2.0.22+) tells SDL to bypass the lock-out so SDL_RaiseWindow /
      * SDL_SetWindowInputFocus actually work. */
     SDL_SetHint(SDL_HINT_FORCE_RAISEWINDOW, "1");
+    /* Belt-and-braces: if SDL somehow declares awareness first, have it claim
+     * per-monitor-v2 rather than something weaker. */
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
 #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO
                  | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) != 0)
@@ -449,6 +589,43 @@ int platform_init(int width, int height, int fullscreen, const char *title)
         return -1;
     }
     SDL_StopTextInput();  /* disable macOS IME composition overlay */
+
+    /* 0x0 means "derive from the desktop". Because awareness was declared
+     * above, the mode SDL reports is in physical pixels, so the backbuffer
+     * ends up pixel-exact on the panel — which is what the interlaced,
+     * checkerboard and LeiaSR stereo modes need.
+     *
+     * Fullscreen takes the desktop mode verbatim (SDL_WINDOW_FULLSCREEN_DESKTOP
+     * would override any size we passed anyway). Windowed gets the largest 4:3
+     * box inside 80% of the desktop height — a desktop-sized *window* is
+     * unwieldy, and the game's content is 4:3. */
+    if (width <= 0 || height <= 0) {
+        int dw = 0, dh = 0;
+        platform_get_desktop_size(&dw, &dh);
+
+        if (dw <= 0 || dh <= 0) {
+            width = 640;
+            height = 480;
+        } else if (fullscreen) {
+            width = dw;
+            height = dh;
+        } else {
+            height = (dh * 4) / 5;
+            width = (height * 4) / 3;
+            if (width > dw) {
+                width = dw;
+                height = (width * 3) / 4;
+            }
+            if (width < 640 || height < 480) {
+                width = 640;
+                height = 480;
+            }
+        }
+        fprintf(stderr, "platform: desktop %dx%d -> %s %dx%d\n",
+                dw, dh, fullscreen ? "fullscreen" : "window", width, height);
+    }
+    s_fbWidth = width;
+    s_fbHeight = height;
 
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
         fprintf(stderr, "Mix_OpenAudio failed: %s\n", Mix_GetError());
@@ -494,6 +671,19 @@ int platform_init(int width, int height, int fullscreen, const char *title)
 #ifndef __EMSCRIPTEN__
     SDL_GL_SetSwapInterval(1);  /* vsync - browser handles this via rAF */
 #endif
+
+    /* Confirm the backbuffer really is the size we asked for, in physical
+     * pixels. A drawable smaller than the window on a scaled display means DPI
+     * awareness did not take, and every output-pixel-keyed stereo mode
+     * (interlaced, checkerboard, LeiaSR) will be soft. */
+    {
+        int dw = 0, dh = 0, ww = 0, wh = 0;
+        SDL_GL_GetDrawableSize(g_sdlWindow, &dw, &dh);
+        SDL_GetWindowSize(g_sdlWindow, &ww, &wh);
+        fprintf(stderr, "platform: window %dx%d, GL drawable %dx%d%s\n",
+                ww, wh, dw, dh,
+                (dw == ww && dh == wh) ? "" : "  <-- MISMATCH (DPI virtualized?)");
+    }
 
     return 0;
 }
@@ -553,12 +743,32 @@ static void HandleSDLEvent(SDL_Event *event)
     #ifdef __EMSCRIPTEN__
             s_quitRequested = 1;
     #else
+            /* Release the stereo backend before the process dies. This is
+             * load-bearing on a switchable-lens LeiaSR panel: the lens hint is
+             * a preference the SR service ORs across every running
+             * application, so exiting without releasing it leaves the panel
+             * lenticular over the desktop. Must happen while the GL context is
+             * still alive — the SR runtime holds GL resources keyed to it. */
+            R_StereoShutdown();
             exit(0);
     #endif
             break;
         }
 
         case SDL_KEYDOWN: {
+            /* Stereo tuning hotkeys are intercepted before the DIK mapping so
+             * they can never collide with a remappable game binding — the F-key
+             * range is not in SDLScancodeToDIK's table at all, but going first
+             * keeps that true even if it ever is. Separation and convergence
+             * genuinely have to be dialled in while looking at the 3D display,
+             * which is why these exist ahead of the options menu. */
+            /* Auto-repeat is passed through so the tuning keys ramp when held;
+             * stereoHandleHotkey rate-limits it internally and refuses to
+             * repeat the discrete actions. */
+            if (stereoHandleHotkey(event->key.keysym.scancode,
+                                   event->key.repeat)) {
+                break;
+            }
             unsigned char dik = SDLScancodeToDIK(event->key.keysym.scancode);
             if (dik) {
                 s_keystate[dik] = 0x80;

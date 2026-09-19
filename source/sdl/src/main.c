@@ -17,6 +17,9 @@
 #include "sonicr_paths.h"
 #include "vertex_struct.h"
 #include "platform.h"
+#include "stereo.h"
+#include "aspect.h"
+#include "stereo_leiasr.h"
 #include "net_transport.h"
 #include "net/matchmaker.h"
 #include "net/net_interp.h"
@@ -171,7 +174,48 @@ const char *g_cmdHostIP = NULL;
 /* Default-unlocked on both DC (no command line) and SDL (debug convenience).
  * SDL also accepts -u to set this explicitly. */
 static int s_cmdUnlock = 0;
-static int s_cmdFullscreen = 0;
+/* Fullscreen-desktop by default: that is the only mode where the backbuffer is
+ * the panel's native resolution, which every output-pixel-keyed stereo mode
+ * (row/column interlaced, checkerboard, and the LeiaSR lenticular weave) needs
+ * in order to land 1:1 on physical pixels. --windowed opts out. */
+static int s_cmdFullscreen = 1;
+/* Tracks whether fullscreen was asked for EXPLICITLY, so that an explicit
+ * --width/--height can imply windowed without overriding an explicit
+ * --fullscreen. */
+static int s_cmdFullscreenExplicit = 0;
+/* Windowed size override (--width/--height). 0 = pick a default from the
+ * desktop size. Ignored under --fullscreen, where SDL's FULLSCREEN_DESKTOP
+ * always gives the desktop resolution. */
+static int s_cmdWinWidth = 0;
+static int s_cmdWinHeight = 0;
+
+/* Stereo-3D command-line overrides. Parsed before LoadGameSettings() reads
+ * SONICR.INF, so they are held here and re-applied afterwards — otherwise the
+ * persisted value would silently win over what the user just typed.
+ * -1 / negative means "not specified on the command line". */
+static int   s_cliStereoMode  = -1;
+static float s_cliSeparation  = -1.0f;
+static float s_cliConvergence = -1.0f;
+static int   s_cliSwapEyes    = 0;
+/* HUD depth and ghost lift have valid values at and below 0, so "was it given?"
+ * cannot be encoded in the value itself the way it is for the three above. */
+static float s_cliHudDepth       = 0.0f;
+static int   s_cliHaveHudDepth   = 0;
+static float s_cliGhostContrast  = -1.0f;
+static float s_cliGhostLift      = 0.0f;
+static int   s_cliHaveGhostLift  = 0;
+
+static void ApplyStereoCliOverrides(void)
+{
+    if (s_cliStereoMode  >= 0)    g_s3dMode        = s_cliStereoMode;
+    if (s_cliSeparation  >= 0.0f) g_s3dSeparation  = s_cliSeparation;
+    if (s_cliConvergence >  0.0f) g_s3dConvergence = s_cliConvergence;
+    if (s_cliSwapEyes)            g_s3dSwapEyes    = 1;
+    if (s_cliHaveHudDepth)        g_s3dHudDepth      = s_cliHudDepth;
+    if (s_cliGhostContrast > 0.0f) g_s3dGhostContrast = s_cliGhostContrast;
+    if (s_cliHaveGhostLift)       g_s3dGhostLift     = s_cliGhostLift;
+    stereoClampSettings();
+}
 static int s_cmdPort = -1;
 static char s_cmdUsername[MM_MAX_USERNAME];
 
@@ -525,12 +569,63 @@ int main(int argc, char *argv[])
         {"port", required_argument, NULL, 'p'},
         {"unlock", no_argument, NULL, 'u'},
         {"fullscreen", no_argument, NULL, 'f'},
+        {"windowed", no_argument, NULL, 'w'},
+        {"aspect", required_argument, NULL, 'A'},
         {"username", required_argument, NULL, 'n'},
+        {"width", required_argument, NULL, 'W'},
+        {"height", required_argument, NULL, 'H'},
+        {"stereo", required_argument, NULL, 'S'},
+        {"separation", required_argument, NULL, 'E'},
+        {"convergence", required_argument, NULL, 'C'},
+        {"swap-eyes", no_argument, NULL, 'X'},
+        {"stereo-debug-depth", no_argument, NULL, 'D'},
+        {"hud-depth", required_argument, NULL, 'U'},
+        {"ghost-contrast", required_argument, NULL, 'G'},
+        {"ghost-lift", required_argument, NULL, 'L'},
         {NULL, 0, NULL, 0}};
     int opt;
     while ((opt = getopt_long(argc, argv, "", long_opts, NULL)) != -1) {
         switch (opt)
         {
+            case 'S': {
+                int m = stereoModeFromName(optarg);
+                if (m < 0) {
+                    fprintf(stderr, "Unknown --stereo mode '%s'. Valid: off sbs tab "
+                                    "row col checker anaglyph leiasr\n", optarg);
+                } else {
+                    s_cliStereoMode = m;
+                }
+                break;
+            }
+            case 'E':
+                s_cliSeparation = (float)atof(optarg);
+                break;
+            case 'C':
+                s_cliConvergence = (float)atof(optarg);
+                break;
+            case 'X':
+                s_cliSwapEyes = 1;
+                break;
+            case 'D':
+                g_s3dDebugDepth = 1;
+                break;
+            case 'U':
+                s_cliHudDepth = (float)atof(optarg);
+                s_cliHaveHudDepth = 1;   /* 0 and negative are both valid */
+                break;
+            case 'G':
+                s_cliGhostContrast = (float)atof(optarg);
+                break;
+            case 'L':
+                s_cliGhostLift = (float)atof(optarg);
+                s_cliHaveGhostLift = 1;  /* 0 is the default, so needs a flag */
+                break;
+            case 'W':
+                s_cmdWinWidth = atoi(optarg);
+                break;
+            case 'H':
+                s_cmdWinHeight = atoi(optarg);
+                break;
             case 'h':
                 strncpy(s_hostIPArg, optarg, sizeof(s_hostIPArg) - 1);
                 s_hostIPArg[sizeof(s_hostIPArg) - 1] = '\0';
@@ -544,7 +639,22 @@ int main(int argc, char *argv[])
                 break;
             case 'f':
                 s_cmdFullscreen = 1;
+                s_cmdFullscreenExplicit = 1;
                 break;
+            case 'w':
+                s_cmdFullscreen = 0;
+                s_cmdFullscreenExplicit = 1;
+                break;
+            case 'A': {
+                float a = AspectParse(optarg);
+                if (a < 0.0f) {
+                    fprintf(stderr, "Unknown --aspect '%s'. Use auto, 4:3, 16:9, "
+                                    "16:10, or a decimal ratio.\n", optarg);
+                } else {
+                    g_renderAspect = a;   /* 0 = auto */
+                }
+                break;
+            }
             case 'n':
                 strncpy(s_cmdUsername, optarg, sizeof(s_cmdUsername) - 1);
                 s_cmdUsername[sizeof(s_cmdUsername) - 1] = '\0';
@@ -554,6 +664,13 @@ int main(int argc, char *argv[])
     }
     if (optind < argc) {
         dataDir = argv[optind];
+    }
+
+    /* Asking for a specific window size only makes sense windowed —
+     * SDL_WINDOW_FULLSCREEN_DESKTOP ignores the size entirely. Treat it as
+     * implying --windowed, unless fullscreen was named outright. */
+    if ((s_cmdWinWidth > 0 || s_cmdWinHeight > 0) && !s_cmdFullscreenExplicit) {
+        s_cmdFullscreen = 0;
     }
 
     /* Get EXE directory, set as working directory
@@ -606,6 +723,28 @@ int main(int argc, char *argv[])
     /* loads SONICR.INF (saved options) */
     LoadGameSettings();
 
+    /* Command line beats the saved config for stereo. */
+    ApplyStereoCliOverrides();
+    stereoInit();
+
+    /* Unconditionally, NOT only when the startup mode is LeiaSR: the mode can
+     * be cycled to at any time with the mode hotkey, and this is the only place
+     * the shim is ever loaded. Gating it on the startup mode meant that
+     * starting in any other mode and switching to LeiaSR found the shim
+     * permanently unloaded and silently fell back to SbS forever.
+     *
+     * Cheap enough to always do — it is only LoadLibrary + GetProcAddress. The
+     * SR runtime itself still comes up lazily on the first weave, which is what
+     * keeps it from disturbing the window during the title sequence. */
+    stereoLeiaSRInit();
+    /* Same field set as the hotkey log, so a startup line and a mid-session
+     * line can be compared directly when a setting is in question. */
+    fprintf(stderr, "stereo: %-11s mode=%s sep=%.3f conv=%.1f swap=%d hud=%+.2f "
+                    "ghost=%.2f/%.2f\n",
+            "startup", stereoModeName(g_s3dMode), (double)g_s3dSeparation,
+            (double)g_s3dConvergence, g_s3dSwapEyes, (double)g_s3dHudDepth,
+            (double)g_s3dGhostContrast, (double)g_s3dGhostLift);
+
     InitJoystick();
 
     g_doubleWidthFlag = 0;                      /* 0x8fd490 */
@@ -624,9 +763,31 @@ int main(int argc, char *argv[])
 
     /* RegisterClassA, CreateWindowExA, ShowWindow
      * Creates fullscreen Win32 window sized to full screen.
-     * Platform-specific window/GL/audio init lives in platform_*.c. */
-    if (platform_init(640, 480, s_cmdFullscreen, "Sonic R") != 0) {
+     * Platform-specific window/GL/audio init lives in platform_*.c.
+     *
+     * Size: --width/--height win; otherwise 0 asks the platform layer for a
+     * default derived from the desktop resolution. Under --fullscreen the size
+     * is moot — SDL_WINDOW_FULLSCREEN_DESKTOP always yields the desktop mode.
+     *
+     * The game renders into a 640x480 VIRTUAL coordinate space regardless; the
+     * GL modelview scales it to whatever the drawable turns out to be, and
+     * vertices are floats, so a larger drawable is a real resolution increase
+     * rather than an upscale of a 640x480 image. */
+    if (platform_init(s_cmdWinWidth, s_cmdWinHeight, s_cmdFullscreen, "Sonic R") != 0) {
         return 1;
+    }
+
+    /* Resolve the render aspect before anything derives from it. BeginFrame
+     * refreshes this every frame, but SetScreenDimensions and
+     * SetupViewportConfig both run before the first frame is ever begun, and
+     * they bake the projection scales — so without this the first pass would
+     * compute them at the default 4:3 and only self-correct later. */
+    {
+        int dw = 0, dh = 0;
+        platform_get_drawable_size(&dw, &dh);
+        AspectUpdate(dw, dh);
+        fprintf(stderr, "aspect: %.4f (%s)\n", (double)AspectEffective(),
+                (g_renderAspect <= 0.0f) ? "auto" : "explicit");
     }
 
 #if 0
@@ -1200,7 +1361,7 @@ race_setup:
     g_vpClipRight10 = g_screenWidth * 0x400 - 1;
     g_vpClipLeft16 = 0;
     g_vpClipRight16 = g_screenWidth * 0x10000 - 1;
-    g_projScaleX = (g_screenWidth * 0x100) / 0x140;
+    g_projScaleX = (g_screenWidth * 0x100) / AspectProjScaleXDivisor();
     g_projScaleY = (g_screenHeight * 0x100) / 0xf0;
     g_vpParam0F = 0;
     g_parallaxWidthDouble = g_parallaxWidth * 2;

@@ -34,6 +34,10 @@
 #include "r_types.h"
 #include "r_state.h"
 #include "r_draw.h"
+#include "r_capture.h"
+#include "r_compose.h"
+#include "stereo.h"
+#include "aspect.h"
 #include "platform.h"
 #include "net_transport.h"
 #include "endian_util.h"
@@ -52,6 +56,17 @@ int g_glBackingHeight = 480;
  * All glViewport / glScissor calls add these offsets. */
 int g_glViewportOffsetX = 0;
 int g_glViewportOffsetY = 0;
+
+/* The viewport's TRUE horizontal bounds, before the stereo cull margin widens
+ * g_clipLeft/g_clipRight.
+ *
+ * Those two are deliberately widened so culls and span generation cover the
+ * band the per-eye shear slides into view — but g_clipLeft is ALSO the origin
+ * UI is positioned from (DrawTexturedQuad), and widening an origin marches
+ * every HUD and menu element off the left of the screen. Anything that treats
+ * the bound as a position rather than a limit must use these. */
+int g_clipLeftTrue = 0;
+int g_clipRightTrue = 639;
 
 /* Static RGBA4444 conversion buffer for texture uploads — max 1024×256×2 = 512 KB.
  * Matches PVR's native ARGB4444 format for DC portability. */
@@ -446,20 +461,32 @@ void BeginFrame(void)
     /* Update viewport to match current window size (for resizable window).
      * The game renders at 640×480 virtual coordinates; GL scales to fit.
      * Maintain 4:3 aspect ratio with letterboxing/pillarboxing. */
+    /* Stereo: (re)create eye targets if needed and arm the draw recorder for
+     * this frame. Must be here in BeginFrame and not in a texture-upload path —
+     * it has to run once per frame regardless of whether anything happened to
+     * need a texture that frame, or resize detection lags and the recorder is
+     * armed late. No-op when stereo is off. */
+    R_StereoBeginFrame();
+
     int fullW, fullH;
     platform_get_drawable_size(&fullW, &fullH);
 
-    /* Compute largest 4:3 rect that fits in fullW x fullH */
+    /* Resolve the render aspect for this frame before anything derives from
+     * it. In auto mode this makes the viewport the whole drawable, so a 16:9
+     * window renders 16:9 rather than pillarboxed 4:3. */
+    AspectUpdate(fullW, fullH);
+    const float aspect = AspectEffective();
+
+    /* Largest rect of the chosen aspect that fits in fullW x fullH. Bars only
+     * appear where the window and the render aspect genuinely disagree. */
     int vpW, vpH;
-    if (fullW * 3 > fullH * 4) {
-        /* Window is wider than 4:3 — pillarbox (black bars on sides) */
+    if ((float)fullW > (float)fullH * aspect) {
         vpH = fullH;
-        vpW = (fullH * 4) / 3;
+        vpW = (int)((float)fullH * aspect + 0.5f);
     }
     else {
-        /* Window is taller than 4:3 — letterbox (black bars top/bottom) */
         vpW = fullW;
-        vpH = (fullW * 3) / 4;
+        vpH = (int)((float)fullW / aspect + 0.5f);
     }
     int offsetX = (fullW - vpW) / 2;
     int offsetY = (fullH - vpH) / 2;
@@ -533,8 +560,16 @@ void EndFrame(void)
  * Original: IDirectDrawSurface::Flip().
  * OpenGL: swap the double buffer.
  */
+/* The single present point for the whole game: every screen's draw loop and
+ * the race loop all bottom out here, so hooking it is what gives menus, title,
+ * character select and gameplay stereo without touching any of them.
+ *
+ * When stereo is active nothing has been drawn to the backbuffer yet — the
+ * frame was recorded instead. R_StereoComposeFrame replays it once per eye and
+ * composes the pair. When stereo is off this is the original one-liner. */
 void FlipD3D(void)
 {
+    R_StereoComposeFrame();
     platform_gl_swap();
 }
 
@@ -557,10 +592,40 @@ void SetViewportFromConfig(int *config)
         return;
     }
 
-    g_clipLeft = config[0];
+    /* Screen-space clip bounds, widened horizontally when stereo is on.
+     *
+     * Every cull and every span-generation loop downstream works from these
+     * bounds, in the game's virtual screen space, and all of it runs BEFORE the
+     * per-eye shear is applied at vertex-submit time. Left at their true values
+     * the result is a band at each screen edge that the shear slides into view
+     * but which nothing ever drew: polygons culled because they were outside
+     * the mono rect, and sky/horizon strips generated only as far as the mono
+     * edge. Widening by the largest shift the shear can produce means the
+     * geometry exists before it is needed.
+     *
+     * Safe to overspill: the GL viewport (and, in split-screen, the GL scissor)
+     * still cuts at the true edge, and neither is derived from these globals —
+     * they come from the g_glViewportOffset / g_glBacking pair and the
+     * viewport config.
+     * The sky loops emit quads directly rather than filling a fixed buffer, so
+     * a wider span just costs a few more strips. */
+    int clipMargin = 0;
+    {
+        float maxShift = stereoMaxShiftNdc();
+        if (maxShift > 0.0f) {
+            /* NDC spans [-1,+1] across g_screenWidth, so a shift of `maxShift`
+             * is maxShift * width/2 virtual pixels. Round up. */
+            clipMargin = (int)(maxShift * (float)g_screenWidth * 0.5f) + 1;
+        }
+    }
+
+    g_clipLeftTrue  = config[0];
+    g_clipRightTrue = config[2];
+
+    g_clipLeft = config[0] - clipMargin;
     g_clipLeftDouble = g_clipLeft * 2;
     g_clipTop = config[1];
-    g_clipRight = config[2];
+    g_clipRight = config[2] + clipMargin;
     g_clipBottom = config[3];
     g_projScaleX = config[4];
     g_projScaleXCurrent = config[5];
@@ -753,29 +818,21 @@ void CleanupD3DTPages(void)                                /* 0x4332ac */
  */
 void RenderBackground(void)
 {
-    extern int g_gameState;
-
-    /* Confine glClear to the 4:3 area so sky/menu colors don't
-     * leak into the letterbox/pillarbox bars. */
+    /* Confine the clear to the 4:3 area so sky/menu colors don't
+     * leak into the letterbox/pillarbox bars.
+     *
+     * The clear goes through R_ClearColor rather than glClear directly so the
+     * stereo recorder can replay it into each eye's framebuffer — the scissor
+     * captured alongside it is what keeps the bars black per eye. */
     R_SetScissor(g_glViewportOffsetX, g_glViewportOffsetY,
                  g_glBackingWidth, g_glBackingHeight);
-    R_FlushState();
 
     /* During racing, clear to black — the binary clears to black and uses
-     * fog to hide the geometry/sky transition (FUN_00435868). */
-    if (g_introCountdown <= 0xD2 && g_introCountdown >= 0) {
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        R_DisableScissor();
-        R_FlushState();
-        return;
-    }
-
-    /* Menu/title: just clear. The wallpaper is drawn with wave distortion
-     * by RenderWavingMenuBackground (FUN_004c6b50), called later in the render loop.
-     * Binary: RenderBackground (0x435868) does IDirect3DViewport2::Clear only. */
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+     * fog to hide the geometry/sky transition (FUN_00435868).
+     * Menu/title clears to black too; the wallpaper is drawn afterwards with
+     * wave distortion by RenderWavingMenuBackground (FUN_004c6b50). Both arms
+     * of the original branch do the same thing here, so they are merged. */
+    R_ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     R_DisableScissor();
     R_FlushState();
 }

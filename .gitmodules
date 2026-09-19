@@ -1,0 +1,4 @@
+[submodule "libs/SR-lib"]
+	path = libs/SR-lib
+	url = https://github.com/bo3b/SR-lib.git
+	branch = api_expansion

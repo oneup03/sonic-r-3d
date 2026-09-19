@@ -26,7 +26,7 @@ else ifneq ($(IS_MINGW),)
                      -Wno-parentheses -Wno-type-limits -Wno-stringop-overflow \
                      -Wno-unused-but-set-variable -Wno-implicit-fallthrough \
                      -Wno-error=unknown-pragmas \
-                     -D_USE_MATH_DEFINES
+                     -D_USE_MATH_DEFINES -DGLEW_STATIC
   SANITIZE =
   EXTRA_LDFLAGS = -static
 else
@@ -50,7 +50,7 @@ SDL_CFLAGS = $(shell sdl2-config --cflags)
 ifneq ($(IS_MINGW),)
   # Static-link chain for MSYS2 UCRT64: explicit SDL2 + SDL2_mixer codec deps
   # + Win32 system libs. Order matters; opengl32 lives at the tail.
-  SDL_LIBS = -lmingw32 -lSDL2main -lSDL2_mixer -lSDL2 \
+  SDL_LIBS = -lmingw32 -lSDL2main -lSDL2_mixer -lSDL2 -lglew32 \
              -lopusfile -lopus -logg \
              -lvorbisfile -lvorbis -logg \
              -lFLAC -lmpg123 -lxmp -lwavpack \

@@ -29,4 +29,17 @@ _Static_assert(offsetof(RenderVertex, specular) == 20, "");
 _Static_assert(offsetof(RenderVertex, u)        == 24, "");
 _Static_assert(offsetof(RenderVertex, v)        == 28, "");
 
+/* Which depth bucket a primitive belongs to, for stereo.
+ *
+ * This has to travel WITH the recorded draw call, not be read from a global at
+ * replay time: the stereo path records a whole frame and replays it once per
+ * eye at present time, by which point every R_Begin2D/R_BeginOverlay scope the
+ * game opened has long since closed. Anything the classification depends on
+ * must either live in the vertex data (as rhw does) or be captured here. */
+typedef enum {
+    R_LAYER_WORLD   = 0,  /* real geometry: depth from its own w */
+    R_LAYER_HUD     = 1,  /* flat at the user's HUD depth */
+    R_LAYER_OVERLAY = 2   /* flat at zero disparity, uncompressed */
+} R_Layer;
+
 #endif /* R_TYPES_H */

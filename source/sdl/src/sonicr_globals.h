@@ -897,6 +897,10 @@ extern int g_viewportArray[];          /* 0x8fb368 */
 extern int g_viewportConfigArray[];          /* 0x6e9924 */
 extern int g_objectRenderEnable;
 extern int g_glViewportOffsetX;
+/* True (un-widened) horizontal viewport bounds — see render_gl.c. Use these
+ * wherever a clip bound is treated as a POSITION rather than a limit. */
+extern int g_clipLeftTrue;
+extern int g_clipRightTrue;
 extern int g_glViewportOffsetY;
 extern int g_splitScreenMode;          /* 0x8fd45c */
 extern int g_ringAnimFrame;          /* 0x901c6c */

@@ -1,0 +1,34 @@
+{
+    // Referenced from tasks.json / launch.json as ${config:sonicr.*}.
+    // These are the only two paths to change if your setup moves.
+    "sonicr.msysRoot": "C:/tools/msys64",
+    "sonicr.deployDir": "C:/Apps/SonicR",
+
+    // The build is MINGW64 gcc; point IntelliSense at the same headers.
+    "C_Cpp.default.compilerPath": "C:/tools/msys64/mingw64/bin/gcc.exe",
+    "C_Cpp.default.cStandard": "c11",
+    "C_Cpp.default.intelliSenseMode": "windows-gcc-x64",
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/source/sdl/src",
+        "C:/tools/msys64/mingw64/include",
+        "C:/tools/msys64/mingw64/include/SDL2"
+    ],
+    "C_Cpp.default.defines": [
+        "SONICR_SDL",
+        "SONICR_DEBUG_LOG",
+        "SONICR_MATCHMAKER",
+        "MINIUPNP_STATICLIB",
+        "_USE_MATH_DEFINES"
+    ],
+
+    "files.associations": {
+        "*.h": "c"
+    },
+
+    // Build outputs — keep them out of search and the file tree.
+    "files.exclude": {
+        "source/sdl/build": true,
+        "source/sdl/build-release": true,
+        "source/dc/build": true
+    }
+}
