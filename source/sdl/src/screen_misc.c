@@ -7,6 +7,8 @@
 
 #include "sonicr_types.h"
 #include "sonicr_globals.h"
+#include "stereo.h"
+#include "stereo_menu.h"
 #include "sonicr_functions.h"
 #include "sonicr_paths.h"
 #include "endian_util.h"
@@ -597,17 +599,19 @@ static void OptionsMenuScrollDown(void)
  * DELIBERATE DIVERGENCE — all platforms. */
 static int IsDisabledGraphicsItem(int itemIndex)
 {
-    switch (itemIndex) {
-        case 23:
-        case 24:
-        case 25:
-        case 27:
-        case 28:
-        case 29:
-            return 1;
-        default:
-            return 0;
-    }
+    /* These six Graphics rows configured things that no longer exist —
+     * DirectDraw resolution and colour depth, the software interlace mode, the
+     * D3D-era viewport shrink, and two software-renderer flags — so the port
+     * blanked them. They now carry the stereoscopic 3D settings instead, and
+     * draw themselves (stereo_menu.c) rather than using the sprite path,
+     * because the atlas labels still say the old thing.
+     *
+     * The stereo rows cover exactly the set that used to be blanked, so nothing
+     * is disabled any more and this is now a no-op. It is kept rather than
+     * deleted because its three call sites document WHERE the blanking used to
+     * apply, which is the non-obvious part. */
+    (void)itemIndex;
+    return 0;
 }
 
 /* =====================================================================
@@ -621,6 +625,14 @@ static int IsDisabledGraphicsItem(int itemIndex)
 static void DrawOptionItem(int xPos, int itemIndex)
 {
     if (IsDisabledGraphicsItem(itemIndex)) {
+        return;
+    }
+
+    /* Stereo rows own their whole presentation — label AND value — because the
+     * sprite label would say "RESOLUTION" and the atlas value widgets are
+     * 0-8 tick bars, neither of which fits a separation of 0.040. */
+    if (StereoMenuIsRow(itemIndex)) {
+        StereoMenuDrawRow(itemIndex, xPos);
         return;
     }
 
@@ -1300,8 +1312,17 @@ int OptionsMenuScreen(void)
                     item = -1;
                 }
 
-                /* Only items 8-31 have adjustable values */
-                if (item >= 8 && item <= 31) {
+                /* Stereo rows first — they replace legacy cases 15-17 and
+                 * 19-21, so they have to claim the item before the switch
+                 * below reaches the old handlers for those indices. */
+                int stereoRes = StereoMenuAdjust(item, direction);
+                if (stereoRes > 0) {
+                    PlaySoundEffect(1, 0, 0);
+                    lastTime = timeGetTime() / 1000;
+                }
+                /* stereoRes < 0: the row is ours but inert, so it is claimed
+                 * without a click. Only items 8-31 have adjustable values. */
+                else if (stereoRes == 0 && item >= 8 && item <= 31) {
                     int idx = item - 8;
                     switch (idx) {
                         case 0: { /* item 8: g_difficultyConfig (0-2) */

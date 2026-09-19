@@ -12,10 +12,10 @@
 
 int   g_s3dMode          = S3D_OFF;
 
-/* 0.04 = objects at infinity sit 4% of the screen width apart. Calibrated
- * default carried over from perfect_dark_3D, which shipped this range against
- * real autostereo hardware; the comfort ceiling is ~0.105 on a 27" 16:9. */
-float g_s3dSeparation    = 0.04f;
+/* Objects at infinity sit this fraction of the screen width apart, so 0.050 is
+ * 5%. Comfortably inside the fusion ceiling, which lands near IPD/screen_width
+ * (~0.105 on a 27" 16:9) — past that the eyes are asked to diverge. */
+float g_s3dSeparation    = S3D_SEPARATION_DEF;
 
 /* Camera-space Z of the zero-disparity (screen) plane.
  *
@@ -24,11 +24,11 @@ float g_s3dSeparation    = 0.04f;
  * 8184 at full detail (g_clipFar 0x3FF, g_clipNear 0xFF — see
  * track_init.c InitFarClipAndFog).
  *
- * Measured with --stereo-debug-depth, the menus and title span roughly
- * w = 340 .. 3000, the upper end being a far-distance constant. 400 therefore
- * sits just inside the near end: most of the scene recedes behind the screen
- * and only the closest geometry comes forward, which is the comfortable
- * default for a chase-camera racer.
+ * Measured with --stereo-debug-depth, a race spans w = 2 .. 10005 with the near
+ * track around 200-500, and the menus span w = 340 .. 3000. The default sits
+ * just below the near track, so most of the scene recedes behind the screen and
+ * only the closest geometry comes forward — the comfortable arrangement for a
+ * chase-camera racer.
  *
  * Still a starting point rather than a per-track calibration — tune it live
  * with the convergence hotkeys, and use --stereo-debug-depth to see the range
@@ -36,7 +36,10 @@ float g_s3dSeparation    = 0.04f;
 float g_s3dConvergence   = S3D_CONVERGENCE_DEF;
 
 int   g_s3dSwapEyes      = 0;
-float g_s3dHudDepth      = 0.0f;   /* HUD on the screen plane by default */
+/* Slightly back from the screen plane rather than on it: the HUD then sits
+ * behind the nearest track geometry instead of intersecting it, which reads as
+ * a layer over the scene rather than one fighting it. */
+float g_s3dHudDepth      = S3D_HUD_DEPTH_DEF;
 float g_s3dGhostContrast = 1.0f;   /* off */
 float g_s3dGhostLift     = 0.0f;   /* off */
 
@@ -185,9 +188,8 @@ int stereoIsHotkey(int scancode)
 {
     switch (scancode) {
         case SDL_SCANCODE_F1:  case SDL_SCANCODE_F2:
+        case SDL_SCANCODE_F3:  case SDL_SCANCODE_F4:
         case SDL_SCANCODE_F5:  case SDL_SCANCODE_F6:
-        case SDL_SCANCODE_F7:  case SDL_SCANCODE_F8:
-        case SDL_SCANCODE_F9:  case SDL_SCANCODE_F10:
             return 1;
         default:
             return 0;
@@ -219,13 +221,9 @@ static void logSettings(const char *what)
 int stereoHandleHotkey(int scancode, int isRepeat)
 {
     if (isRepeat) {
-        /* Discrete actions never repeat: holding the mode key would spin
-         * through every output mode, and holding swap-eyes would toggle it
-         * dozens of times and land wherever. Only the continuous values ramp. */
-        if (scancode == SDL_SCANCODE_F9 || scancode == SDL_SCANCODE_F10) {
-            return 1;
-        }
-
+        /* Every remaining hotkey is a continuous value, so they all ramp; the
+         * discrete actions that had to refuse repeats (mode, swap eyes) now
+         * live on the options page instead. */
         static Uint32 s_lastRepeat = 0;
         Uint32 now = SDL_GetTicks();
         /* Consume the event either way — returning 0 would leak the key
@@ -253,12 +251,12 @@ int stereoHandleHotkey(int scancode, int isRepeat)
             logSettings("hud+");
             return 1;
 
-        case SDL_SCANCODE_F5:
+        case SDL_SCANCODE_F3:
             g_s3dSeparation -= S3D_SEPARATION_STEP;
             stereoClampSettings();
             logSettings("sep-");
             return 1;
-        case SDL_SCANCODE_F6:
+        case SDL_SCANCODE_F4:
             g_s3dSeparation += S3D_SEPARATION_STEP;
             stereoClampSettings();
             logSettings("sep+");
@@ -267,33 +265,23 @@ int stereoHandleHotkey(int scancode, int isRepeat)
         /* Convergence steps multiplicatively: perceived depth goes with the
          * ratio, so a fixed increment is far too coarse near the camera and
          * far too fine out at the background. */
-        case SDL_SCANCODE_F7:
+        case SDL_SCANCODE_F5:
             g_s3dConvergence /= S3D_CONVERGENCE_STEP;
             stereoClampSettings();
             logSettings("conv-");
             return 1;
-        case SDL_SCANCODE_F8:
+        case SDL_SCANCODE_F6:
             g_s3dConvergence *= S3D_CONVERGENCE_STEP;
             stereoClampSettings();
             logSettings("conv+");
             return 1;
 
-        case SDL_SCANCODE_F9:
-            g_s3dMode = (g_s3dMode + 1) % S3D_MODE_COUNT;
-            stereoClampSettings();
-            stereoRefreshActive();
-            logSettings("mode");
-            return 1;
-        case SDL_SCANCODE_F10:
-            g_s3dSwapEyes = !g_s3dSwapEyes;
-            logSettings("swap");
-            return 1;
-
-        /* F11/F12 deliberately unbound: Windows and attached debuggers both
-         * intercept them often enough that a binding there looks broken rather
-         * than absent. Ghost contrast/lift lost their hotkeys to HUD depth and
-         * are set with --ghost-contrast / --ghost-lift instead — they are
-         * calibrated once per display, not dialled in per scene. */
+        /* F7-F12 deliberately unbound. Output mode, swap eyes and ghost
+         * reduction moved to the Graphics options page (stereo_menu.c): they
+         * are chosen once for a display rather than dialled in per scene, so
+         * they do not need to be reachable mid-race. F11/F12 would be poor
+         * choices anyway — Windows and attached debuggers intercept them often
+         * enough that a binding there reads as broken rather than absent. */
         default:
             return 0;
     }
@@ -312,7 +300,12 @@ int stereoHandleHotkey(int scancode, int isRepeat)
  * check on slot 32.
  * ------------------------------------------------------------------------- */
 #define S3D_INF_BASE   32
-#define S3D_INF_MAGIC  0x53334431   /* 'S3D1' — marks slots as initialized */
+/* 'S3D2'. Bumped from 'S3D1' when the shipped defaults changed: an INF written
+ * by an older build holds values tuned against the old ones, and silently
+ * keeping them would mean the new defaults never reached anyone who had already
+ * run the game. A version bump makes the slots read as uninitialized once, so
+ * the defaults land and are then re-persisted under the new tag. */
+#define S3D_INF_MAGIC  0x53334432
 
 void stereoConfigLoad(const int *buf, int count)
 {
@@ -320,7 +313,9 @@ void stereoConfigLoad(const int *buf, int count)
         return;
     }
     if (buf[S3D_INF_BASE + 0] != S3D_INF_MAGIC) {
-        return;   /* pre-stereo INF: keep compiled-in defaults */
+        /* Pre-stereo INF, or one from a build with different defaults: keep the
+         * compiled-in values. */
+        return;
     }
 
     int packed = buf[S3D_INF_BASE + 1];
@@ -349,7 +344,7 @@ void stereoConfigLoad(const int *buf, int count)
      * disparity, which is jarring. Treat a saturated stored value as
      * uncalibrated and start from the screen plane. */
     if (g_s3dHudDepth <= -0.999f || g_s3dHudDepth >= 0.999f) {
-        g_s3dHudDepth = 0.0f;
+        g_s3dHudDepth = S3D_HUD_DEPTH_DEF;
     }
     g_s3dGhostContrast = (float)buf[S3D_INF_BASE + 5] / 10000.0f;
     g_s3dGhostLift     = (float)buf[S3D_INF_BASE + 6] / 10000.0f;

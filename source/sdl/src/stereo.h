@@ -57,6 +57,8 @@ extern float g_s3dGhostContrast; /* 1.0 = off */
 extern float g_s3dGhostLift;     /* 0.0 = off */
 
 #define S3D_SEPARATION_MAX   0.15f
+#define S3D_SEPARATION_DEF   0.050f
+#define S3D_HUD_DEPTH_DEF    0.2f
 
 /* Maximum crossed (pop-out) disparity, as a multiple of separation. The far
  * side self-limits at exactly separation, but the near side runs to infinity
@@ -84,7 +86,7 @@ extern float g_s3dGhostLift;     /* 0.0 = off */
  * it is supposed to sit behind. 5000 keeps the sky comfortably uncrossed at any
  * setting while still allowing convergence far past any real track geometry. */
 #define S3D_CONVERGENCE_MAX  5000.0f
-#define S3D_CONVERGENCE_DEF  400.0f
+#define S3D_CONVERGENCE_DEF  252.0f
 #define S3D_SEPARATION_STEP  0.002f
 #define S3D_CONVERGENCE_STEP 1.08f   /* multiplicative: depth is perceived log-ish */
 #define S3D_HUD_DEPTH_STEP   0.1f    /* 20 steps across the -1..+1 range */
@@ -140,9 +142,9 @@ float stereoMaxShiftNdc(void);
 /* Live tuning hotkeys, handled before the game's key mapping.
  * Takes an SDL scancode; returns 1 if the key was consumed.
  *
- *   F1/F2  HUD depth -/+          F7/F8   convergence -/+ (multiplicative)
- *   F5/F6  separation -/+         F9      cycle output mode
- *                                 F10     swap eyes
+ *   F1/F2  HUD depth -/+
+ *   F3/F4  separation -/+
+ *   F5/F6  convergence -/+ (multiplicative)
  *
  * These three are the ones with no right answer in the abstract: separation and
  * convergence depend on the panel and the viewing distance, and HUD depth
@@ -150,14 +152,14 @@ float stereoMaxShiftNdc(void);
  * adjustable while looking at the 3D image, so they get keys; each change logs
  * the resulting values so a setting found by feel can be written down.
  *
- * The three continuous values ramp when held, rate-limited internally so the
- * feel does not depend on the user's Windows key-repeat settings. The two
- * discrete actions (mode, swap eyes) deliberately do not repeat.
+ * All three are continuous and ramp when held, rate-limited internally so the
+ * feel does not depend on the user's Windows key-repeat settings.
  *
- * Ghost contrast/lift are calibrated once per display rather than per scene, so
- * they are set with --ghost-contrast / --ghost-lift and persisted. F3/F4 and
- * F11/F12 are left unbound — Windows and attached debuggers intercept F11/F12
- * often enough that a binding there reads as broken rather than absent. */
+ * Everything else lives on the Graphics options page (stereo_menu.c). Output
+ * mode, swap eyes and ghost reduction are chosen once and left alone, so they
+ * do not earn a key each. F7-F12 are deliberately unbound — and F11/F12 would
+ * be poor choices regardless, since Windows and attached debuggers intercept
+ * them often enough that a binding there reads as broken rather than absent. */
 int   stereoHandleHotkey(int scancode, int isRepeat);
 
 /* 1 if this scancode is one of ours. Lets the caller swallow rate-limited
