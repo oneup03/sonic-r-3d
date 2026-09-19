@@ -7,7 +7,7 @@
 #include <string.h>
 #include "aspect.h"
 
-#define ASPECT_4_3 (4.0f / 3.0f)
+#define ASPECT_4_3 ASPECT_MIN_RATIO
 
 /* Never go NARROWER than the original design. A window taller than 4:3 would
  * otherwise crop the sides off a game whose framing assumes them, so a narrow
@@ -22,17 +22,29 @@
 
 float g_renderAspect = 0.0f;                  /* 0 = auto */
 static float s_effective = ASPECT_4_3;
+static int   s_changed   = 0;
 
-void AspectUpdate(int drawableW, int drawableH)
+void AspectUpdate(int areaW, int areaH)
 {
     float a = g_renderAspect;
 
     if (a <= 0.0f) {
-        a = (drawableH > 0) ? ((float)drawableW / (float)drawableH) : ASPECT_4_3;
+        a = (areaH > 0) ? ((float)areaW / (float)areaH) : ASPECT_4_3;
     }
     if (a < ASPECT_MIN) a = ASPECT_MIN;
     if (a > ASPECT_MAX) a = ASPECT_MAX;
-    s_effective = a;
+
+    if (a != s_effective) {
+        s_effective = a;
+        s_changed = 1;
+    }
+}
+
+int AspectConsumeChange(void)
+{
+    int c = s_changed;
+    s_changed = 0;
+    return c;
 }
 
 float AspectEffective(void)

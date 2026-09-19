@@ -8,10 +8,16 @@
  *   R_StereoPresent()     replay the recording once per eye into the two eye
  *                         FBOs, then compose them onto the backbuffer
  *
- * The eye FBOs are the full drawable size, NOT the 4:3 content area. The
- * game's existing letterbox/pillarbox runs inside each eye buffer exactly as
- * it does today, which is also the layout a half-SbS display expects: it
- * stretches each half back to full width, so the bars survive the round trip.
+ * The eye FBOs are the size of the area ONE eye is rendered into, NOT the 4:3
+ * content area. That is normally the whole drawable: the game's existing
+ * letterbox/pillarbox runs inside each eye buffer exactly as it does today,
+ * which is also the layout a half-SbS display expects, since it stretches each
+ * half back to full width and the bars survive the round trip.
+ *
+ * On a panel carrying full-SbS the eye buffers are half-width instead and the
+ * compose writes them into their halves 1:1 — see stereoEyeViewport(). Output
+ * size and eye size therefore have to be tracked separately: s_out* is the
+ * window, s_eye* is what each pass renders.
  */
 
 #ifndef SONICR_SOFT_RENDER
@@ -55,7 +61,8 @@ static GLuint s_vao  = 0;          /* core profiles require one even for a
 static GLint  s_uTexL = -1, s_uTexR = -1, s_uMode = -1,
               s_uOutSize = -1, s_uGhostContrast = -1, s_uGhostLift = -1;
 
-static int s_fbW = 0, s_fbH = 0;
+static int s_eyeW = 0, s_eyeH = 0;    /* one eye's render target */
+static int s_outW = 0, s_outH = 0;    /* the window the compose lands on */
 static int s_ready = 0;
 static int s_glewOk = 0;
 static int s_failed = 0;          /* sticky: don't retry a broken setup */
@@ -144,7 +151,7 @@ static void destroyTargets(void)
     if (s_sbsTex)      { glDeleteTextures(1, &s_sbsTex);      s_sbsTex = 0; }
 }
 
-static int createTargets(int w, int h)
+static int createTargets(int w, int h, int outW, int outH)
 {
     destroyTargets();
 
@@ -215,15 +222,32 @@ static int createTargets(int w, int h)
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
-    s_fbW = w;
-    s_fbH = h;
-    fprintf(stderr, "stereo: eye buffers %dx%d\n", w, h);
+    s_eyeW = w;
+    s_eyeH = h;
+    s_outW = outW;
+    s_outH = outH;
+    fprintf(stderr, "stereo: eye buffers %dx%d, output %dx%d%s\n",
+            w, h, outW, outH, (w * 2 == outW) ? " (full-SbS)" : "");
     return 1;
 }
 
 /* ---------------------------------------------------------------------------
  * Init / teardown
  * ------------------------------------------------------------------------- */
+
+/* This frame's target geometry: the window, and the area one eye renders into.
+ * 0 if the drawable is not usable yet. */
+static int resolveTargets(int *eyeW, int *eyeH, int *outW, int *outH)
+{
+    *outW = 0;
+    *outH = 0;
+    platform_get_drawable_size(outW, outH);
+    if (*outW <= 0 || *outH <= 0) {
+        return 0;
+    }
+    stereoEyeViewport(*outW, *outH, eyeW, eyeH);
+    return 1;
+}
 
 void R_StereoInit(void)
 {
@@ -260,12 +284,11 @@ void R_StereoInit(void)
         glGenVertexArrays(1, &s_vao);
     }
 
-    int w = 0, h = 0;
-    platform_get_drawable_size(&w, &h);
-    if (w <= 0 || h <= 0) {
+    int ew = 0, eh = 0, ow = 0, oh = 0;
+    if (!resolveTargets(&ew, &eh, &ow, &oh)) {
         return;   /* try again next frame */
     }
-    if (!createTargets(w, h)) {
+    if (!createTargets(ew, eh, ow, oh)) {
         s_failed = 1;
         return;
     }
@@ -295,12 +318,14 @@ void R_StereoBeginFrame(void)
     if (g_s3dMode != S3D_OFF && !s_ready && !s_failed) {
         R_StereoInit();
     }
-    /* Track window resizes. */
+    /* Track window resizes — and mode changes, since the eye size depends on
+     * the selected mode as well as the drawable: switching in or out of the
+     * full-SbS split halves or doubles the eye width at a fixed window size. */
     if (s_ready) {
-        int w = 0, h = 0;
-        platform_get_drawable_size(&w, &h);
-        if (w > 0 && h > 0 && (w != s_fbW || h != s_fbH)) {
-            if (!createTargets(w, h)) {
+        int ew = 0, eh = 0, ow = 0, oh = 0;
+        if (resolveTargets(&ew, &eh, &ow, &oh)
+            && (ew != s_eyeW || eh != s_eyeH || ow != s_outW || oh != s_outH)) {
+            if (!createTargets(ew, eh, ow, oh)) {
                 s_failed = 1;
                 s_ready = 0;
             }
@@ -380,7 +405,8 @@ int R_StereoComposeFrame(void)
         return 0;
     }
 
-    int w = s_fbW, h = s_fbH;
+    const int eyeW = s_eyeW, eyeH = s_eyeH;
+    const int outW = s_outW, outH = s_outH;
 
     /* Convergence lives in the game's camera-space Z units, which are not
      * documented anywhere — so report the range the frame actually spans.
@@ -441,15 +467,15 @@ int R_StereoComposeFrame(void)
          * right place: BEFORE the weave, because the residual ghost is the
          * weaver's own anti-crosstalk correction overshooting and getting
          * clamped, so the headroom has to exist by the time it runs. */
-        composeInto(s_sbsFbo, S3D_SBS, w * 2, h);
+        composeInto(s_sbsFbo, S3D_SBS, eyeW * 2, eyeH);
 
         /* The weave writes into whatever framebuffer and viewport are bound, so
          * both have to be the window before we hand off — composeInto just left
          * the viewport at 2W. Getting this wrong weaves at double width and
          * shows only the left half. */
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, w, h);
-        stereoLeiaSRWeave(s_sbsTex, w * 2, h);   /* also runs the lazy init */
+        glViewport(0, 0, outW, outH);
+        stereoLeiaSRWeave(s_sbsTex, eyeW * 2, eyeH);  /* also runs the lazy init */
         wove = stereoLeiaSRAvailable();          /* 0 if init just failed, or
                                                   * the display went away */
     }
@@ -462,7 +488,10 @@ int R_StereoComposeFrame(void)
         if (mode == S3D_LEIASR) {
             mode = S3D_SBS;
         }
-        composeInto(0, mode, w, h);
+        /* Onto the WINDOW, so always at the output size — under the full-SbS
+         * split the eye buffers are half that, and each lands in its own half
+         * of this pass 1:1 rather than being resampled into it. */
+        composeInto(0, mode, outW, outH);
     }
 
     /* Switchable-lens panels: drive the lens from whether we ACTUALLY wove, not

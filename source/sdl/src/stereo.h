@@ -130,6 +130,32 @@ int   stereoNumEyes(void);
  * double-swaps and looks like it does nothing. */
 float stereoShearDir(int eye);
 
+/* Per-eye render area for the current mode and drawable, in physical pixels.
+ * Returns 1 if the eyes are packed FULL-SbS, 0 for every other layout (and
+ * whenever stereo is off), in which case the eye size is just the drawable.
+ *
+ * Normally each eye is rendered at the FULL drawable size and the compose pass
+ * squeezes it into its half of the frame. That is half-SbS, and the squeeze is
+ * correct because the display undoes it: a half-SbS sink stretches each half
+ * back to full width before showing it. The eye's aspect is the panel's.
+ *
+ * A panel wide enough that HALF of it is still a sane frame in its own right —
+ * 32:9, whose halves are 16:9 — is carrying full-SbS instead. Nothing stretches
+ * anything back there, so each half is displayed exactly as composed, and an
+ * eye rendered at the panel's 32:9 would be squashed to half its width. The eye
+ * has to be rendered at the half's size and aspect to begin with.
+ *
+ * Doing it by size rather than by squeezing later is also strictly less work:
+ * two W/2 x H eyes are the pixel count of one full frame, where the half-SbS
+ * layout renders two W x H eyes — 4x the pixels — and then throws half of each
+ * away in the resample. That is the "over-render 32:9 and crop" this avoids.
+ *
+ * The test is ASPECT_MIN_RATIO, the narrowest ratio anything here is rendered
+ * at: if half the panel is at least 4:3 the split produces a real frame, and if
+ * it is not (21:9 halves to 1.18:1, 16:9 to 0.89:1) the split would pillarbox
+ * away most of what it gained, so the half-SbS path stays. */
+int   stereoEyeViewport(int drawableW, int drawableH, int *eyeW, int *eyeH);
+
 /* Largest magnitude, in NDC, that the shear can move a vertex horizontally at
  * the current separation. 0 when stereo is off.
  *

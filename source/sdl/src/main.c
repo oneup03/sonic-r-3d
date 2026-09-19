@@ -783,11 +783,20 @@ int main(int argc, char *argv[])
      * they bake the projection scales — so without this the first pass would
      * compute them at the default 4:3 and only self-correct later. */
     {
-        int dw = 0, dh = 0;
+        int dw = 0, dh = 0, ew = 0, eh = 0;
         platform_get_drawable_size(&dw, &dh);
-        AspectUpdate(dw, dh);
-        fprintf(stderr, "aspect: %.4f (%s)\n", (double)AspectEffective(),
-                (g_renderAspect <= 0.0f) ? "auto" : "explicit");
+        /* Through the eye split, so a 32:9 panel in SbS resolves the 16:9 its
+         * eyes are actually rendered at rather than resolving 32:9 here and
+         * being corrected on the first frame. */
+        const int split = stereoEyeViewport(dw, dh, &ew, &eh);
+        AspectUpdate(ew, eh);
+        /* The setup below bakes this aspect, so the change is already spent —
+         * leaving the flag set would make the first BeginFrame redo the whole
+         * rebuild for nothing. */
+        (void)AspectConsumeChange();
+        fprintf(stderr, "aspect: %.4f (%s)%s\n", (double)AspectEffective(),
+                (g_renderAspect <= 0.0f) ? "auto" : "explicit",
+                split ? " [full-SbS, one eye per half]" : "");
     }
 
 #if 0

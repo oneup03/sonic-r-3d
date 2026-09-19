@@ -9,6 +9,7 @@
 #include <string.h>
 #include <SDL.h>
 #include "stereo.h"
+#include "aspect.h"
 
 int   g_s3dMode          = S3D_OFF;
 
@@ -155,6 +156,28 @@ float stereoShearDir(int eye)
      *
      * SwapEyes is applied at compose time only — see the header. */
     return (eye == 0) ? -1.0f : 1.0f;
+}
+
+int stereoEyeViewport(int drawableW, int drawableH, int *eyeW, int *eyeH)
+{
+    int w = drawableW;
+    int h = drawableH;
+    int split = 0;
+
+    /* Keyed off the SELECTED mode, not g_s3dActive: the eye buffers are sized
+     * during stereo init, before the active flag has been raised, so gating on
+     * the flag would size the first set of buffers for the wrong layout. */
+    if (g_s3dMode == S3D_SBS && drawableW > 0 && drawableH > 0) {
+        const float panel = (float)drawableW / (float)drawableH;
+        if (panel >= 2.0f * ASPECT_MIN_RATIO) {
+            w = drawableW / 2;
+            split = 1;
+        }
+    }
+
+    if (eyeW) *eyeW = (w > 0) ? w : 1;
+    if (eyeH) *eyeH = (h > 0) ? h : 1;
+    return split;
 }
 
 float stereoMaxShiftNdc(void)

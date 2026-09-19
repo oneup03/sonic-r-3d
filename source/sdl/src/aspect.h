@@ -34,16 +34,38 @@
 #ifndef ASPECT_H
 #define ASPECT_H
 
+/* The narrowest ratio anything is ever rendered at — the original design.
+ * Exported because it is also the test for whether a region is a usable frame
+ * at all: stereoEyeViewport() uses it to decide whether half of an ultrawide
+ * panel is wide enough to be an eye in its own right. */
+#define ASPECT_MIN_RATIO (4.0f / 3.0f)
+
 /* User setting. 0 = auto (track the window/display aspect). Otherwise an
  * explicit ratio such as 4.0f/3.0f or 16.0f/9.0f. Set from --aspect. */
 extern float g_renderAspect;
 
-/* Recompute the effective aspect from the setting and the current drawable.
- * Call once per frame before the viewport is set. */
-void  AspectUpdate(int drawableW, int drawableH);
+/* Recompute the effective aspect from the setting and the size of the area a
+ * frame is rendered into. Call once per frame before the viewport is set.
+ *
+ * That area is the drawable in the ordinary case, but it is ONE EYE's buffer
+ * under the full-SbS split (stereoEyeViewport), which is the whole point of
+ * taking a size here rather than reading the drawable itself: the projection
+ * has to match the region the frame actually lands in. */
+void  AspectUpdate(int areaW, int areaH);
 
 /* The aspect actually in use, after auto-resolution and clamping. */
 float AspectEffective(void);
+
+/* 1 if the effective aspect has changed since this was last called, and clears
+ * the flag.
+ *
+ * g_projScaleX, the per-viewport projection scales and every clip rect are
+ * BAKED from the aspect by ApplyViewportGeometry() at setup time, not read per
+ * frame. So anything that moves the aspect after startup — a window resize, or
+ * switching the stereo output mode into or out of the full-SbS split — has to
+ * rebuild them, or the world keeps the old field of view inside the new
+ * viewport and stretches. */
+int   AspectConsumeChange(void);
 
 /* Divisor for the horizontal projection scale, replacing the hardcoded 0x140.
  * 320 at 4:3; 240 * aspect in general. */

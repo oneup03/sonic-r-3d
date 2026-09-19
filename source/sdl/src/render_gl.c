@@ -40,6 +40,9 @@
 #include "aspect.h"
 #include "platform.h"
 #include "net_transport.h"
+
+/* init.c, port addition — rebuilds every value baked from the aspect. */
+void ApplyViewportGeometry(void);
 #include "endian_util.h"
 #include <math.h>
 
@@ -471,25 +474,42 @@ void BeginFrame(void)
     int fullW, fullH;
     platform_get_drawable_size(&fullW, &fullH);
 
+    /* The area ONE frame is rendered into, which is the drawable except under
+     * the full-SbS split, where each eye owns half the panel and is recorded
+     * into a half-width buffer of its own. Everything below — the aspect, the
+     * fitted rect, the offsets the replay and every scissor are expressed in —
+     * is relative to that area, not to the window. */
+    int areaW, areaH;
+    stereoEyeViewport(fullW, fullH, &areaW, &areaH);
+
     /* Resolve the render aspect for this frame before anything derives from
-     * it. In auto mode this makes the viewport the whole drawable, so a 16:9
+     * it. In auto mode this makes the viewport the whole area, so a 16:9
      * window renders 16:9 rather than pillarboxed 4:3. */
-    AspectUpdate(fullW, fullH);
+    AspectUpdate(areaW, areaH);
     const float aspect = AspectEffective();
 
-    /* Largest rect of the chosen aspect that fits in fullW x fullH. Bars only
-     * appear where the window and the render aspect genuinely disagree. */
+    /* The projection scales and viewport rects are baked, not recomputed per
+     * frame, so a moved aspect has to rebuild them here — otherwise the world
+     * keeps the previous field of view inside the new viewport and stretches.
+     * Rare by construction: startup, a window resize, or switching the stereo
+     * mode into or out of the split. */
+    if (AspectConsumeChange()) {
+        ApplyViewportGeometry();
+    }
+
+    /* Largest rect of the chosen aspect that fits in areaW x areaH. Bars only
+     * appear where the area and the render aspect genuinely disagree. */
     int vpW, vpH;
-    if ((float)fullW > (float)fullH * aspect) {
-        vpH = fullH;
-        vpW = (int)((float)fullH * aspect + 0.5f);
+    if ((float)areaW > (float)areaH * aspect) {
+        vpH = areaH;
+        vpW = (int)((float)areaH * aspect + 0.5f);
     }
     else {
-        vpW = fullW;
-        vpH = (int)((float)fullW / aspect + 0.5f);
+        vpW = areaW;
+        vpH = (int)((float)areaW / aspect + 0.5f);
     }
-    int offsetX = (fullW - vpW) / 2;
-    int offsetY = (fullH - vpH) / 2;
+    int offsetX = (areaW - vpW) / 2;
+    int offsetY = (areaH - vpH) / 2;
 
     g_glViewportOffsetX = offsetX;
     g_glViewportOffsetY = offsetY;
