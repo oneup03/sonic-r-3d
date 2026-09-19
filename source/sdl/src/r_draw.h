@@ -45,6 +45,15 @@ void R_End2D(void);
 void R_BeginOverlay(void);
 void R_EndOverlay(void);
 
+/* Declare that the enclosed draws are authored in the 640x480 4:3 space and
+ * must keep those proportions in a wider viewport — WITHOUT changing their
+ * depth. For full-screen art drawn in fixed virtual screen coordinates (the
+ * logo and title backdrops), which would otherwise stretch to fill a 16:9
+ * viewport but is still meant to be seen at the depth it was submitted with.
+ * A no-op at 4:3. Nestable. */
+void R_BeginPillarbox(void);
+void R_EndPillarbox(void);
+
 /* Clear the colour buffer, honouring the current scissor. Routed through the
  * stereo recorder so each eye gets its own clear on replay. */
 void R_ClearColor(float r, float g, float b, float a);

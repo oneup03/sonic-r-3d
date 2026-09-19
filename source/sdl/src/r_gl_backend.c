@@ -468,6 +468,11 @@ static int   s_emitLayer   = R_LAYER_WORLD;
 static int s_inOverlay = 0;
 static int s_inOverlayDepth = 0;
 
+/* Pillarbox scope — a modifier on whatever depth bucket applies, not a bucket
+ * of its own. See R_LAYER_PILLARBOX. */
+static int s_inPillarbox = 0;
+static int s_inPillarboxDepth = 0;
+
 void R_SetEyeShear(float dir)
 {
     s_eyeShearDir = dir;
@@ -521,9 +526,15 @@ static inline void R_EmitVertex(const RenderVertex *v)
      * A world vertex can never collide with this: w == 1 is far closer than the
      * near clip, so nothing in the scene is ever submitted at that depth. */
     const int screenSpace = (v->rhw > 0.999999f && v->rhw < 1.000001f);
-    const int overlay = (s_emitLayer == R_LAYER_OVERLAY);
-    /* Overlays are exempt from the 2D compression — they must span the screen. */
-    const int is2D = !overlay && (s_emitLayer == R_LAYER_HUD || screenSpace);
+    const int depthLayer  = (s_emitLayer & R_LAYER_MASK);
+    const int overlay     = (depthLayer == R_LAYER_OVERLAY);
+
+    /* Horizontal compression and depth bucket are decided separately — see
+     * R_LAYER_PILLARBOX. Overlays are exempt either way: they must span the
+     * screen. */
+    const int is2D = !overlay && ((s_emitLayer & R_LAYER_PILLARBOX)
+                                  || depthLayer == R_LAYER_HUD
+                                  || screenSpace);
 
     /* Widescreen: the world gets the wider frustum, but 2D content does not.
      *
@@ -559,7 +570,7 @@ static inline void R_EmitVertex(const RenderVertex *v)
         if (overlay) {
             /* Exactly on the screen plane, whatever the HUD is set to. */
             shiftNdc = 0.0f;
-        } else if (s_emitLayer == R_LAYER_HUD) {
+        } else if (depthLayer == R_LAYER_HUD) {
             /* Declared overlay — HUD, menus, UI. Sits where the HUD-depth
              * setting puts it, screen plane by default, because it is text and
              * gauges you read rather than scenery you look past. */
@@ -673,6 +684,19 @@ void R_BeginOverlay(void)
     s_inOverlay = 1;
 }
 
+void R_BeginPillarbox(void)
+{
+    s_inPillarboxDepth++;
+    s_inPillarbox = 1;
+}
+
+void R_EndPillarbox(void)
+{
+    if (s_inPillarboxDepth > 0 && --s_inPillarboxDepth == 0) {
+        s_inPillarbox = 0;
+    }
+}
+
 void R_EndOverlay(void)
 {
     if (s_inOverlayDepth > 0 && --s_inOverlayDepth == 0) {
@@ -688,9 +712,10 @@ void R_DrawTriFan(const RenderVertex *v, int count)
 
     /* Resolve the layer HERE, while the scopes are still open, and carry it
      * with the primitive. At replay time they are all closed. */
-    const int layer = s_inOverlay ? R_LAYER_OVERLAY
-                    : (s_in2D     ? R_LAYER_HUD
-                                  : R_LAYER_WORLD);
+    const int layer = (s_inOverlay ? R_LAYER_OVERLAY
+                     : (s_in2D     ? R_LAYER_HUD
+                                   : R_LAYER_WORLD))
+                    | (s_inPillarbox ? R_LAYER_PILLARBOX : 0);
 
     /* Stereo: hand the primitive to the recorder instead of drawing it. The
      * whole frame is replayed once per eye at present time. */

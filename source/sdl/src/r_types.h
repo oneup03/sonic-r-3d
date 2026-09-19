@@ -39,7 +39,20 @@ _Static_assert(offsetof(RenderVertex, v)        == 28, "");
 typedef enum {
     R_LAYER_WORLD   = 0,  /* real geometry: depth from its own w */
     R_LAYER_HUD     = 1,  /* flat at the user's HUD depth */
-    R_LAYER_OVERLAY = 2   /* flat at zero disparity, uncompressed */
+    R_LAYER_OVERLAY = 2,  /* flat at zero disparity, uncompressed */
+    R_LAYER_MASK    = 0x0F,
+
+    /* Modifier, not a bucket: "this is authored in the 640x480 4:3 space, so
+     * compress it horizontally in a wider viewport" — WITHOUT changing which
+     * depth bucket it belongs to.
+     *
+     * The two concerns look linked because HUD content wants both, but they are
+     * independent. The full-screen logo/title backdrops are the case that
+     * separates them: they are drawn in fixed virtual screen coordinates and so
+     * must be pillarboxed, yet they carry a genuine depth and are meant to be
+     * seen at it. Folding them into a 2D bucket would fix the aspect by
+     * flattening them, which is not the same thing. */
+    R_LAYER_PILLARBOX = 0x10
 } R_Layer;
 
 #endif /* R_TYPES_H */

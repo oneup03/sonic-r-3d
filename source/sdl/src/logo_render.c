@@ -319,6 +319,17 @@ void RenderLogoQuads(void)
 
     R_SetTexEnv(R_TEXENV_MODULATE);
 
+    /* These quads are positioned in fixed virtual screen coordinates —
+     * g_dispHalfWidth/Height about g_dispClipLeft/Top, with no projection scale
+     * anywhere — so the 640x480 space they are authored in stretches to fill
+     * whatever viewport it is given. In 16:9 that distorts the Sega, Travellers
+     * Tales and Sonic R backdrops horizontally.
+     *
+     * Pillarbox keeps their 4:3 proportions without touching their depth: they
+     * carry a real w (LOGO_Z_DEPTH) and stay in the world bucket, so in stereo
+     * they are still seen at the depth they were submitted with. */
+    R_BeginPillarbox();
+
     for (int q = 0; q < 6; q++) {
         int tpage = g_uiTexPage + q;
 
@@ -359,4 +370,6 @@ void RenderLogoQuads(void)
         };
         R_DrawQuad(verts);
     }
+
+    R_EndPillarbox();
 }
