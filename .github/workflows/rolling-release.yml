@@ -3,7 +3,12 @@
 # The release keeps ONE stable tag and ONE stable set of asset names, so the
 # download URLs never change:
 #
-#   https://github.com/<owner>/<repo>/releases/latest/download/sonic-r-3d-windows-x64.zip
+#   https://github.com/<owner>/<repo>/releases/download/rolling/sonic-r-3d-windows-x64.zip
+#
+# Note the tag in that path, NOT "latest". GitHub resolves /releases/latest/ to
+# the newest NON-prerelease release, so it 404s on this one — verified. The
+# tag-pinned form is what stays stable, and it does so because the tag name
+# never changes.
 #
 # That is the point of the force-moved tag and `--clobber` upload below. The
 # alternative — delete and recreate the release each run — would give the same
@@ -184,8 +189,15 @@ jobs:
 
           ### Downloads
 
-          - **Windows (x64)** — \`sonic-r-3d-windows-x64.zip\`. Statically linked; nothing to install.
-          - **Linux (x86_64)** — \`sonic-r-3d-linux-x86_64.tar.gz\`. Links against the system SDL2, SDL2_mixer, GLEW and miniupnpc. Built on the current \`ubuntu-latest\` runner, so it expects a reasonably recent distro.
+          - **Windows (x64)** — \`sonic-r-3d-windows-x64.zip\`. Statically linked; nothing to install. Includes \`leiasr_shim.dll\` for LeiaSR autostereo output.
+          - **Linux (x86_64)** — \`sonic-r-3d-linux-x86_64.tar.gz\`. Links against the system SDL2, SDL2_mixer, GLEW and miniupnpc. Built on Ubuntu 24.04, which is effectively the floor — GLEW 2.2 and miniupnpc 17 are the two most likely to be too new for an older distro.
+
+          These URLs are stable and always point at the newest build:
+
+          \`\`\`
+          https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/sonic-r-3d-windows-x64.zip
+          https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/sonic-r-3d-linux-x86_64.tar.gz
+          \`\`\`
 
           ### This is the engine only
 
@@ -216,7 +228,7 @@ jobs:
           fi
 
           # --clobber replaces same-named assets in place, which is what keeps
-          # the /releases/latest/download/<name> URLs stable across runs.
+          # the /releases/download/rolling/<name> URLs stable across runs.
           gh release upload "$tag" \
             dist/sonic-r-3d-windows-x64.zip \
             dist/sonic-r-3d-linux-x86_64.tar.gz \
