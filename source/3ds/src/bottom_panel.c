@@ -68,7 +68,6 @@ static const Glyph s_font[] = {
     { '8', { 0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E } },
     { '9', { 0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C } },
     { 'M', { 0x11,0x1B,0x15,0x15,0x11,0x11,0x11 } },
-    { 'Z', { 0x1F,0x01,0x02,0x04,0x08,0x10,0x1F } },
     /* the HOME prompt */
     { 'A', { 0x0E,0x11,0x11,0x1F,0x11,0x11,0x11 } },
     { 'B', { 0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E } },
@@ -166,11 +165,11 @@ void BottomPanel_Touch(int px, int py, int held)
 
 void BottomPanel_Draw(void)
 {
-    /* "30 FPS 804MHZ": the clock confirms the CIA got the New 3DS speed-up.
-     * The frame-budget and speed-up diagnostics still go to the log every
-     * 300 frames (r_c3d_stereo.c); they no longer clutter the screen. */
-    char line[32];
-    snprintf(line, sizeof(line), "%d FPS %dMHZ", g_rc3dFps, g_rc3dCpuMhz);
+    /* Frame rate only. The CPU clock (which shows whether the New 3DS
+     * speed-up engaged) is logged at boot, and the frame budget every 300
+     * frames (r_c3d_stereo.c). */
+    char line[16];
+    snprintf(line, sizeof(line), "%d FPS", g_rc3dFps);
     draw_text_centred(line, FPS_Y, COL_TEXT);
 
     draw_text_centred("CONV", LABEL_Y, COL_TEXT);

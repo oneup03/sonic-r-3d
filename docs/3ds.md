@@ -111,7 +111,7 @@ everything unlocked in that slot.
   right eye is not rendered at all, which is faster.
 - The **touch screen** shows the race HUD (rings, timer, positions, laps,
   minimap) so the top screen is unobstructed. In its middle sit a frame-rate
-  and CPU-clock readout and the **CONV** slider: convergence, i.e. which
+  counter and the **CONV** slider: convergence, i.e. which
   distance sits exactly on the screen plane. Nearer geometry pops out, farther
   recedes.
 - *3D DEPTH MAX* on the Graphics options page is the separation at full slider.
@@ -162,10 +162,10 @@ The lobby's text line (a chat prompt in the PC game) is not typeable on the
 - **No sound** — `sdmc:/3ds/dspfirm.cdc` is missing (see *Get it*).
 - **Hangs on the Homebrew Launcher / black screens** — make sure you launched
   `SonicR.3dsx` from its own folder; the launcher shows the folder as one app.
-- **The bottom screen reads 268MHZ on a New 3DS** — you are running the
-  `.3dsx`, which cannot raise the clock, even with Luma's *New 3DS CPU* option
-  set; install the `.cia` for the 804 MHz clock (see *Get it*). The speed-up
-  attempt and its result are in the debug log.
+- **No 804 MHz clock on a New 3DS** — the `.3dsx` cannot raise the clock,
+  even with Luma's *New 3DS CPU* option set; install the `.cia` for it (see
+  *Get it*). The debug log's boot lines say which clock the game got
+  (`speedup … cpu ~N MHz`).
 - **The lobby's Host/Join does nothing online** — the console has no Wi-Fi
   connection (ONLINE needs an access point; use LOCAL WIRELESS without one).
 - Debug output goes to `svcOutputDebugString` (visible in Azahar's log and over
