@@ -92,6 +92,30 @@ void R_StereoBeginFrame(void)
     g_s3dActive = (s_ready && g_rc3dSlider > 0.0f) ? 1 : 0;
 }
 
+int RC3D_PresentReady(void)
+{
+    return s_ready;
+}
+
+/* The rewind happens after C3D_FrameBegin, which has waited for the GPU to
+ * finish the previous frame, so a prompt frame never overwrites vertices the
+ * GPU is still reading. The last prompt frame's vertices are left in place
+ * for the same reason: the game's next recorded draws go after them. */
+void RC3D_PresentBottomOnly(void (*draw)(void), int mark)
+{
+    if (!s_ready) {
+        return;
+    }
+    C3D_FrameBegin(0);
+    RC3D_ImmRewind(mark);
+    C3D_RenderTargetClear(s_bottom, C3D_CLEAR_ALL, 0x000000FF, 0);
+    C3D_FrameDrawOn(s_bottom);
+    RC3D_BeginTarget(&s_projBottom, 0.0f, 1);
+    draw();
+    RC3D_ImmFlush();
+    C3D_FrameEnd(0);
+}
+
 int R_StereoComposeFrame(void)
 {
     if (!s_ready) {

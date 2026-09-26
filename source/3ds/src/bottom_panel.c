@@ -69,10 +69,20 @@ static const Glyph s_font[] = {
     { '9', { 0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C } },
     { 'M', { 0x11,0x1B,0x15,0x15,0x11,0x11,0x11 } },
     { 'Z', { 0x1F,0x01,0x02,0x04,0x08,0x10,0x1F } },
+    /* the HOME prompt */
+    { 'A', { 0x0E,0x11,0x11,0x1F,0x11,0x11,0x11 } },
+    { 'B', { 0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E } },
+    { 'E', { 0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F } },
+    { 'I', { 0x0E,0x04,0x04,0x04,0x04,0x04,0x0E } },
+    { 'Q', { 0x0E,0x11,0x11,0x11,0x15,0x12,0x0D } },
+    { 'R', { 0x1E,0x11,0x11,0x1E,0x14,0x12,0x11 } },
+    { 'T', { 0x1F,0x04,0x04,0x04,0x04,0x04,0x04 } },
+    { '?', { 0x0E,0x11,0x01,0x02,0x04,0x00,0x04 } },
+    { '-', { 0x00,0x00,0x00,0x1F,0x00,0x00,0x00 } },
     { ' ', { 0,0,0,0,0,0,0 } },
 };
 
-static void draw_text(const char *s, float x, float y, uint32_t col)
+static void draw_text_px(const char *s, float x, float y, float gp, uint32_t col)
 {
     for (; *s; s++) {
         const Glyph *g = NULL;
@@ -83,21 +93,31 @@ static void draw_text(const char *s, float x, float y, uint32_t col)
             for (int r = 0; r < 7; r++) {
                 for (int c = 0; c < 5; c++) {
                     if (g->rows[r] & (0x10 >> c)) {
-                        float px = x + c * GLYPH_PX, py = y + r * GLYPH_PX;
-                        RC3D_ImmQuad(px, py, px + GLYPH_PX, py + GLYPH_PX, col);
+                        float px = x + c * gp, py = y + r * gp;
+                        RC3D_ImmQuad(px, py, px + gp, py + gp, col);
                     }
                 }
             }
         }
-        x += GLYPH_ADV;
+        x += 6.0f * gp;
     }
 }
 
-/* Horizontally centred text: n glyphs advance n*ADV, the last has no gap. */
+/* Horizontally centred at glyph pixel size gp; no gap after the last glyph. */
+static void draw_centred_px(const char *s, float y, float gp, uint32_t col)
+{
+    float w = (float)strlen(s) * 6.0f * gp - gp;
+    draw_text_px(s, 320.0f - w * 0.5f, y, gp, col);
+}
+
+static void draw_text(const char *s, float x, float y, uint32_t col)
+{
+    draw_text_px(s, x, y, GLYPH_PX, col);
+}
+
 static void draw_text_centred(const char *s, float y, uint32_t col)
 {
-    float w = (float)strlen(s) * GLYPH_ADV - (GLYPH_ADV - 5.0f * GLYPH_PX);
-    draw_text(s, 320.0f - w * 0.5f, y, col);
+    draw_centred_px(s, y, GLYPH_PX, col);
 }
 
 /* convergence is perceived logarithmically: map [MIN, MAX] to [0, 1] in log space */
@@ -155,4 +175,14 @@ void BottomPanel_Draw(void)
 
     draw_text_centred("CONV", LABEL_Y, COL_TEXT);
     draw_bar(BAR1_Y, conv_to_t(g_s3dConvergence), COL_FILL_C);
+}
+
+/* Bottom screen while the HOME prompt is up (virtual 640x480, 4:3). */
+void BottomPanel_DrawPrompt(void)
+{
+    RC3D_ImmQuad(40.0f, 120.0f, 600.0f, 360.0f, 0xFF202838u);
+    draw_centred_px("QUIT SONIC R?", 150.0f, 6.0f, 0xFFFFFFFFu);
+    draw_centred_px("A - QUIT", 230.0f, 4.0f, COL_TEXT);
+    draw_centred_px("B - RESUME", 268.0f, 4.0f, COL_TEXT);
+    draw_centred_px("HOME - HOME MENU", 306.0f, 4.0f, 0xFFB0B0B0u);
 }

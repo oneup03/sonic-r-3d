@@ -617,6 +617,18 @@ void RC3D_ImmFlush(void)
     imm_flush_untextured();
 }
 
+int RC3D_ImmMark(void)
+{
+    return s_vtxCount;
+}
+
+void RC3D_ImmRewind(int mark)
+{
+    if (mark >= 0 && mark <= s_vtxCount) {
+        s_vtxCount = mark;
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * State API
  * ------------------------------------------------------------------------- */

@@ -89,7 +89,7 @@ files work in the desktop build.
 | R / ZR             | Drift right                      |
 | START              | Start / pause                    |
 | L+R+START+SELECT   | Quit to the Homebrew Launcher    |
-| HOME               | Suspend (settings are saved)     |
+| HOME               | Quit prompt: A quits, B resumes, HOME again opens the HOME Menu |
 
 Buttons can be remapped under Options → Controls. That page has only the pad
 row and Back on the 3DS: the keyboard rows of the PC game are gone, since there

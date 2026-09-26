@@ -11,4 +11,8 @@ void BottomPanel_Touch(int px, int py, int held);
  * race HUD has been replayed there. */
 void BottomPanel_Draw(void);
 
+/* The HOME-button prompt (quit / resume / HOME Menu), drawn on its own on the
+ * bottom screen through RC3D_PresentBottomOnly. */
+void BottomPanel_DrawPrompt(void);
+
 #endif

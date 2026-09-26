@@ -67,12 +67,13 @@ static u64  s_timeBase = 0;
  *                   <frame> SHOT <name>             print "AUTOTEST shot <name>"
  *                   <frame> LOG <text>              print the text
  *                   <frame> EXIT                    exit(0)
+ *                   <frame> HOME                    act as a HOME press
  *                   ENV <name>=<value>              setenv before main
  * Both files live next to the .3dsx. Missing files are simply ignored.
  * ------------------------------------------------------------------------- */
 #define AT_MAX 256
 typedef struct { int frame, frames; u32 keys; int kind; int phase; int tx, ty; char text[48]; } AtCmd;
-enum { AT_KEYS = 0, AT_SHOT, AT_LOG, AT_EXIT, AT_TOUCH };
+enum { AT_KEYS = 0, AT_SHOT, AT_LOG, AT_EXIT, AT_TOUCH, AT_HOME };
 static AtCmd s_at[AT_MAX];
 static int   s_atCount = 0;
 static int   s_atFrame = 0;       /* last frame index handled */
@@ -80,6 +81,7 @@ static u64   s_atPhaseStartMs = 0; /* wall-clock origin of the phase (30 Hz fram
 static u32   s_held = 0;          /* hidKeysHeld() | scripted keys */
 static u32   s_atKeys = 0;        /* scripted keys for the current game frame */
 static int   s_atTouch = 0, s_atTouchX = 0, s_atTouchY = 0;   /* scripted touch this pump */
+static int   s_atHome = 0;          /* scripted HOME press, consumed like a real one */
 
 /* Phases: "WHEN <text>" starts a new phase that activates (and resets the
  * frame counter) once <text> shows up on stderr. Commands belong to the phase
@@ -187,6 +189,7 @@ static void at_load(const char *base)
         if (strcasecmp(b, "SHOT") == 0)      { cmd->kind = AT_SHOT; if (n > 2) strncpy(cmd->text, c, sizeof(cmd->text) - 1); }
         else if (strcasecmp(b, "LOG") == 0)  { cmd->kind = AT_LOG;  if (n > 2) strncpy(cmd->text, c, sizeof(cmd->text) - 1); }
         else if (strcasecmp(b, "EXIT") == 0) { cmd->kind = AT_EXIT; }
+        else if (strcasecmp(b, "HOME") == 0) { cmd->kind = AT_HOME; }
         else if (n > 2 && strncasecmp(c, "TOUCH", 5) == 0) {
             cmd->kind = AT_TOUCH;
             cmd->frames = atoi(b);
@@ -244,6 +247,9 @@ static u32 at_tick(void)
                 break;
             case AT_EXIT:
                 if (fired) { fprintf(stderr, "AUTOTEST: exit\n"); exit(0); }
+                break;
+            case AT_HOME:
+                if (fired) { fprintf(stderr, "AUTOTEST: home\n"); s_atHome = 1; }
                 break;
             case AT_TOUCH:
                 if (f >= c->frame && f < c->frame + c->frames) { s_atTouch = 1; s_atTouchX = c->tx; s_atTouchY = c->ty; }
@@ -488,6 +494,86 @@ void platform_get_drawable_size(int *w, int *h)
  * Input
  * ------------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------------
+ * HOME button: a quit prompt on the bottom screen.
+ *
+ * With aptSetHomeAllowed(false) a HOME press no longer suspends the game; APT
+ * reports it through aptCheckHomePressRejected() instead, and the game is
+ * expected to give its own feedback. Here that is a modal prompt: A quits
+ * (exit() runs the atexit handlers, so settings are saved), B resumes, and
+ * HOME again goes to the HOME Menu through aptJumpToHomeMenu(), the same call
+ * libctru's main loop makes for an ordinary HOME press.
+ *
+ * While it is up the top screens keep their last frame, all sound is muted,
+ * and game time is held: the prompt's duration is added to the time base, so
+ * menu idle timeouts and the like do not fire the moment it closes. It only
+ * returns once B is released, so the press that closed it does not also reach
+ * the game as a back press.
+ * ------------------------------------------------------------------------- */
+static int s_homeTrapped = 0;
+
+static u32 prompt_keys(void)
+{
+    hidScanInput();
+    u32 k = hidKeysHeld();
+    if (s_atCount > 0) {
+        k |= at_tick();
+    }
+    return k;
+}
+
+static void home_prompt(void)
+{
+    const u64 t0 = osGetTime();
+    const int mark = RC3D_ImmMark();
+    u32 prev = prompt_keys();          /* held on entry: not a press */
+    int toHome = 0;
+
+    fprintf(stderr, "3ds: HOME - quit prompt\n");
+    ndspSetMasterVol(0.0f);
+    for (;;) {
+        if (!aptMainLoop()) {
+            exit(0);
+        }
+        const u32 keys = prompt_keys();
+        const u32 down = keys & ~prev;
+        prev = keys;
+        if (aptCheckHomePressRejected() || s_atHome) {
+            s_atHome = 0;
+            toHome = 1;
+            break;
+        }
+        if (down & KEY_A) {
+            fprintf(stderr, "3ds: quit from the HOME prompt\n");
+            exit(0);
+        }
+        if (down & KEY_B) {
+            break;
+        }
+        RC3D_PresentBottomOnly(BottomPanel_DrawPrompt, mark);
+    }
+
+    if (toHome) {
+        fprintf(stderr, "3ds: HOME prompt -> HOME Menu\n");
+        aptJumpToHomeMenu();           /* returns when the game is resumed */
+    }
+    else {
+        /* Keep the prompt up until B is let go, or the game sees it as a
+         * back press. Other buttons may stay held (accelerate, say). */
+        while ((prompt_keys() & KEY_B) != 0) {
+            if (!aptMainLoop()) {
+                exit(0);
+            }
+            RC3D_PresentBottomOnly(BottomPanel_DrawPrompt, mark);
+        }
+        fprintf(stderr, "3ds: resumed from the HOME prompt\n");
+    }
+    ndspSetMasterVol(1.0f);
+    if (s_timeBase != 0) {
+        s_timeBase += osGetTime() - t0;
+    }
+}
+
 int platform_poll_events(unsigned char *keystateOut, int keystateSize)
 {
     if (keystateOut && keystateSize > 0) {
@@ -505,6 +591,16 @@ void platform_pump_events(void)
      * atexit(SaveGameSettings) in main.c still runs. Same as the DC build. */
     if (!aptMainLoop()) {
         exit(0);
+    }
+    /* HOME opens the quit prompt instead of suspending straight to the HOME
+     * Menu (see home_prompt). Only once something can draw the prompt. */
+    if (!s_homeTrapped && RC3D_PresentReady()) {
+        aptSetHomeAllowed(false);
+        s_homeTrapped = 1;
+    }
+    if (s_homeTrapped && (aptCheckHomePressRejected() || s_atHome)) {
+        s_atHome = 0;
+        home_prompt();
     }
     hidScanInput();
     s_held = hidKeysHeld() | s_atKeys;

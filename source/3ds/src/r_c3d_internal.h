@@ -36,6 +36,16 @@ void RC3D_ImmQuad(float x0, float y0, float x1, float y1, uint32_t argb);
 void RC3D_ImmTexQuad(int tpage, float x0, float y0, float x1, float y1,
                      float u0, float v0, float u1, float v1, uint32_t argb);
 void RC3D_ImmFlush(void);
+/* Vertex-buffer fill mark, for drawing outside the recorded frame (the HOME
+ * prompt): take a mark, and rewind to it before each extra frame's quads. */
+int  RC3D_ImmMark(void);
+void RC3D_ImmRewind(int mark);
+/* 1 once the render targets exist. */
+int  RC3D_PresentReady(void);
+/* One frame on the bottom screen only: clear it, call draw() to add immediate
+ * quads, present. The top screens are not touched and keep their last frame.
+ * `mark` is an RC3D_ImmMark taken before the first such frame. */
+void RC3D_PresentBottomOnly(void (*draw)(void), int mark);
 int  RC3D_TargetWidth(void);     /* backing size of the target being drawn */
 int  RC3D_TargetHeight(void);
 void RC3D_Stats(int *cmds, int *verts, int *dropped);
