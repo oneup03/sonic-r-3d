@@ -71,25 +71,28 @@ jobs:
     env:
       # push and pull_request runs have no inputs, so this falls to 0 there.
       DEBUG_LOG: ${{ inputs.debug-log && '1' || '0' }}
-      # makerom and bannertool are not devkitPro packages. Pinned release
-      # binaries, so a new upstream release cannot change the CIA under us.
-      MAKEROM_URL: https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-ubuntu_x86_64.zip
-      BANNERTOOL_URL: https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-linux.tar.gz
+      # makerom and bannertool are not devkitPro packages, and their release
+      # binaries need glibc 2.38 while the image is Debian 12 (2.36), so both
+      # are built from pinned release tags. Everything they need (make, g++,
+      # cmake, ninja) is already in the image, and it takes seconds.
+      MAKEROM_SRC: https://github.com/3DSGuy/Project_CTR/archive/refs/tags/makerom-v0.19.0.tar.gz
+      BANNERTOOL_SRC: https://github.com/carstene1ns/3ds-bannertool/archive/refs/tags/1.2.3.tar.gz
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch CIA tools
+      - name: Build CIA tools
         run: |
           set -euo pipefail
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends curl unzip zip ca-certificates >/dev/null
-          mkdir -p /tmp/ciatools && cd /tmp/ciatools
-          curl -fsSL -o makerom.zip "$MAKEROM_URL"
-          unzip -o -q makerom.zip
-          install -m 755 "$(find . -type f -name makerom | head -1)" /usr/local/bin/makerom
-          curl -fsSL -o bannertool.tar.gz "$BANNERTOOL_URL"
-          tar -xzf bannertool.tar.gz
-          install -m 755 "$(find . -type f -name 'bannertool*' ! -name '*.tar.gz' | head -1)" /usr/local/bin/bannertool
+          mkdir -p /tmp/ciatools/makerom /tmp/ciatools/bannertool
+          cd /tmp/ciatools
+          curl -fsSL "$MAKEROM_SRC" | tar -xz --strip-components=1 -C makerom
+          make -C makerom/makerom -j"$(nproc)" deps >/dev/null
+          make -C makerom/makerom -j"$(nproc)" >/dev/null
+          install -m 755 makerom/makerom/bin/makerom /usr/local/bin/makerom
+          curl -fsSL "$BANNERTOOL_SRC" | tar -xz --strip-components=1 -C bannertool
+          cmake -S bannertool -B bannertool/build -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build bannertool/build >/dev/null
+          install -m 755 bannertool/build/bannertool /usr/local/bin/bannertool
           # Neither takes a version flag; both print it in their usage banner.
           { makerom 2>&1 || true; } | head -1
           { bannertool 2>&1 || true; } | head -1
