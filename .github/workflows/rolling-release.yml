@@ -197,13 +197,15 @@ jobs:
 
           - **Windows (x64)** — \`sonic-r-3d-windows-x64.zip\`. Statically linked; nothing to install. Includes \`leiasr_shim.dll\` for LeiaSR autostereo output.
           - **Linux (x86_64)** — \`sonic-r-3d-linux-x86_64.tar.gz\`. Links against the system SDL2, SDL2_mixer, GLEW and miniupnpc. Built on Ubuntu 24.04, which is effectively the floor — GLEW 2.2 and miniupnpc 17 are the two most likely to be too new for an older distro.
-          - **Nintendo 3DS** — \`sonic-r-3d-3ds.zip\`. \`SonicR.cia\` (install this on a New 3DS: it gets the 804 MHz clock) and the Homebrew Launcher \`3ds/SonicR/SonicR.3dsx\`; both read the game data from \`sdmc:/3ds/SonicR/\`. Stereoscopic 3D, HUD on the touch screen. See \`docs/3ds.md\`.
+          - **Nintendo 3DS** — \`sonic-r-3d-3ds.zip\`: extract it to the SD card's root for \`/3ds/SonicR/SonicR.3dsx\` (Homebrew Launcher) with the bundled extras in place, then copy the game's data folders in beside it. \`sonic-r-3d-3ds.cia\`: the same game as an installed title, which on a New 3DS gets the 804 MHz clock; FBI can install it straight from the URL below. Both read \`sdmc:/3ds/SonicR/\`. Stereoscopic 3D, HUD on the touch screen. See \`docs/3ds.md\`.
 
           These URLs are stable and always point at the newest build:
 
           \`\`\`
           https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/sonic-r-3d-windows-x64.zip
           https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/sonic-r-3d-linux-x86_64.tar.gz
+          https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/sonic-r-3d-3ds.zip
+          https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/sonic-r-3d-3ds.cia
           \`\`\`
 
           ### This is the engine only
@@ -240,6 +242,7 @@ jobs:
             dist/sonic-r-3d-windows-x64.zip \
             dist/sonic-r-3d-linux-x86_64.tar.gz \
             dist/sonic-r-3d-3ds.zip \
+            dist/sonic-r-3d-3ds.cia \
             --clobber
 
           echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"

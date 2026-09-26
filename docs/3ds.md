@@ -18,26 +18,29 @@ original 3DS/2DS will boot it, but frame rate there is best-effort.
 
 1. Your console needs custom firmware (Luma3DS). Any modern CFW setup from
    [3ds.hacks.guide](https://3ds.hacks.guide) works.
-2. Download `sonic-r-3d-3ds.zip` from the
-   [rolling release](https://github.com/oneup03/sonic-r-3d/releases/tag/rolling).
-   It holds two builds of the same game:
-   - **`SonicR.cia`** — an installable title. **Use this on a New 3DS / 2DS**:
-     only an installed title can ask for the 804 MHz clock and the L2 cache,
-     which give the game headroom to hold 30 fps. Install it with FBI (or any
-     CIA installer); it appears on the HOME menu.
-   - **`3ds/SonicR/SonicR.3dsx`** — the Homebrew Launcher build. Same game,
-     but it always runs at 268 MHz without the L2 cache: Luma's 3dsx loader
-     turns both off for every homebrew process, and Luma's *New 3DS CPU*
-     option only reaches installed titles, so setting it does not help here.
-     It still holds 30 fps in races on a New 3DS, just with less to spare.
-     The only choice on an original 3DS/2DS, which has no faster clock anyway.
-3. Copy the game data to `sdmc:/3ds/SonicR/` (next section). Both builds look
-   there; the `.3dsx` also has to live in that folder.
-4. **Sound needs the DSP firmware dump** at `sdmc:/3ds/dspfirm.cdc`. Dump it once
+2. From the
+   [rolling release](https://github.com/oneup03/sonic-r-3d/releases/tag/rolling)
+   download **`sonic-r-3d-3ds.zip`** and extract it to the root of the SD
+   card. That gives `sdmc:/3ds/SonicR/` with the Homebrew Launcher build,
+   `SonicR.3dsx`, and the few data files this project supplies (network
+   icons, replay voice clips) already in their folders.
+3. **On a New 3DS / 2DS, also install `sonic-r-3d-3ds.cia`** with FBI or any
+   CIA installer. FBI can take it straight from the release URL (*Remote
+   Install*). It is the same game as an installed title on the HOME Menu, and
+   only an installed title can ask for the 804 MHz clock and the L2 cache,
+   which give the game headroom to hold 30 fps. The `.3dsx` always runs at
+   268 MHz without the L2 cache: Luma's 3dsx loader turns both off for every
+   homebrew process, and Luma's *New 3DS CPU* option only reaches installed
+   titles. It still holds 30 fps in races on a New 3DS, just with less to
+   spare, and it is the only choice on an original 3DS/2DS, which has no
+   faster clock anyway.
+4. Copy the game data into `sdmc:/3ds/SonicR/` (next section), beside what
+   the zip put there. Both builds read that folder.
+5. **Sound needs the DSP firmware dump** at `sdmc:/3ds/dspfirm.cdc`. Dump it once
    with Luma3DS: open the Rosalina menu (default L+Down+Select), pick
    *Miscellaneous options…*, then *Dump DSP firmware*. Without it the game runs
    silently.
-5. Launch **Sonic R** from the HOME menu (CIA) or the Homebrew Launcher (3dsx).
+6. Launch **Sonic R** from the HOME menu (CIA) or the Homebrew Launcher (3dsx).
 
 ## Game data you supply
 

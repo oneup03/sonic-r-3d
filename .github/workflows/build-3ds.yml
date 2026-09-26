@@ -111,34 +111,39 @@ jobs:
       - name: Package
         run: |
           set -euo pipefail
-          # Ships as the SD card's /3ds/SonicR/ folder: the game's data folders
-          # go in beside SonicR.3dsx. The bundled extras the PC data lacks
-          # (network icons, split replay voice clips) come along.
-          out=dist/3ds/SonicR
+          # sonic-r-3d-3ds.zip is laid out from the SD card's root: extracting
+          # it there gives /3ds/SonicR/ with SonicR.3dsx, and the few game-data
+          # files the repo supplies (network icons, split replay voice clips)
+          # already in their places, so the player's own data folders drop in
+          # beside them. The .3dsx carries its icon, so no loose .smdh.
+          out=dist/sd/3ds/SonicR
           mkdir -p "$out/BIN/OPTION" "$out/SOUND/SFX"
-          cp source/3ds/SonicR.3dsx source/3ds/build/SonicR.smdh "$out/"
-          cp source/3ds/SonicR.cia dist/
+          cp source/3ds/SonicR.3dsx "$out/"
           cp README.md LICENSE docs/3ds.md "$out/"
           cp DATA/BIN/OPTION/NET01.RAW "$out/BIN/OPTION/"
           cp DATA/SOUND/SFX/*.WAV "$out/SOUND/SFX/"
-          (cd dist && zip -q -r ../sonic-r-3d-3ds.zip 3ds SonicR.cia)
-          ls -l sonic-r-3d-3ds.zip
+          (cd dist/sd && zip -q -r ../../sonic-r-3d-3ds.zip 3ds)
+          # The CIA ships on its own: it is installed, not copied, and reads
+          # the same /3ds/SonicR/ folder.
+          cp source/3ds/SonicR.cia sonic-r-3d-3ds.cia
+          unzip -l sonic-r-3d-3ds.zip
           {
             echo "### Nintendo 3DS"
             echo
             echo "| File | Bytes |"
             echo "|---|---|"
-            echo "| \`SonicR.3dsx\` | $(stat -c %s source/3ds/SonicR.3dsx) |"
-            echo "| \`SonicR.cia\` | $(stat -c %s source/3ds/SonicR.cia) |"
-            echo "| \`sonic-r-3d-3ds.zip\` | $(stat -c %s sonic-r-3d-3ds.zip) |"
+            echo "| \`sonic-r-3d-3ds.zip\` (SD card, .3dsx) | $(stat -c %s sonic-r-3d-3ds.zip) |"
+            echo "| \`sonic-r-3d-3ds.cia\` | $(stat -c %s sonic-r-3d-3ds.cia) |"
             echo
             echo "Debug log: \`DEBUG_LOG=$DEBUG_LOG\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # The artifact holds the release zip itself, as the Windows and Linux
-      # jobs do, so the rolling release can upload whatever it downloads.
+      # The artifact holds the release files themselves, as the Windows and
+      # Linux jobs do, so the rolling release can upload whatever it downloads.
       - uses: actions/upload-artifact@v4
         with:
           name: sonic-r-3d-3ds
-          path: sonic-r-3d-3ds.zip
+          path: |
+            sonic-r-3d-3ds.zip
+            sonic-r-3d-3ds.cia
           retention-days: 14
