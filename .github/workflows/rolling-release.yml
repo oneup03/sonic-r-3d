@@ -155,54 +155,11 @@ jobs:
           path: sonic-r-3d-linux-x86_64.tar.gz
           retention-days: 7
 
+  # The 3DS build lives in its own workflow so branches and pull requests can
+  # run the exact recipe that ships; see build-3ds.yml.
   n3ds:
     name: Build (Nintendo 3DS)
-    runs-on: ubuntu-latest
-    # devkitPro's own image: devkitARM, libctru, citro3d, picasso, 3dstools,
-    # with DEVKITPRO/DEVKITARM already exported. devkitPro asks that CI use
-    # the images rather than pacman.
-    container: devkitpro/devkitarm:latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build engine
-        run: make -C source/3ds -j"$(nproc)" DEBUG_LOG=0
-
-      # makerom and bannertool are not devkitPro packages; fetch the Linux
-      # binaries so the installable title (New 3DS clock) ships too.
-      - name: Build CIA
-        run: |
-          set -euo pipefail
-          apt-get update -qq && apt-get install -y -qq --no-install-recommends curl unzip zip ca-certificates >/dev/null
-          mkdir -p /tmp/ciatools && cd /tmp/ciatools
-          curl -sSL -o makerom.zip https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-ubuntu_x86_64.zip
-          unzip -o -q makerom.zip && install -m 755 "$(find . -type f -name 'makerom' | head -1)" /usr/local/bin/makerom
-          curl -sSL -o bt.tar.gz https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-linux.tar.gz
-          tar -xzf bt.tar.gz && install -m 755 "$(find . -type f -name 'bannertool*' | head -1)" /usr/local/bin/bannertool
-          cd "$GITHUB_WORKSPACE"
-          make -C source/3ds cia DEBUG_LOG=0 MAKEROM=/usr/local/bin/makerom BANNERTOOL=/usr/local/bin/bannertool
-
-      - name: Package
-        run: |
-          set -euo pipefail
-          # Ships as the SD card's /3ds/SonicR/ folder: drop the game's data
-          # folders in beside SonicR.3dsx. The bundled extras the PC data lacks
-          # (network icons, split replay voice clips) come along.
-          out=dist/3ds/SonicR
-          mkdir -p "$out/BIN/OPTION" "$out/SOUND/SFX"
-          cp source/3ds/SonicR.3dsx source/3ds/build/SonicR.smdh "$out/"
-          cp source/3ds/SonicR.cia dist/
-          cp README.md LICENSE docs/3ds.md "$out/"
-          cp DATA/BIN/OPTION/NET01.RAW "$out/BIN/OPTION/"
-          cp DATA/SOUND/SFX/*.WAV "$out/SOUND/SFX/"
-          (cd dist && zip -r ../sonic-r-3d-3ds.zip 3ds SonicR.cia)
-          ls -l sonic-r-3d-3ds.zip
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: n3ds
-          path: sonic-r-3d-3ds.zip
-          retention-days: 7
+    uses: ./.github/workflows/build-3ds.yml
 
   release:
     name: Publish rolling release

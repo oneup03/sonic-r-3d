@@ -23,11 +23,14 @@ original 3DS/2DS will boot it, but frame rate there is best-effort.
    It holds two builds of the same game:
    - **`SonicR.cia`** — an installable title. **Use this on a New 3DS / 2DS**:
      only an installed title can ask for the 804 MHz clock and the L2 cache,
-     and the game needs them for 30 fps. Install it with FBI (or any CIA
-     installer); it appears on the HOME menu.
+     which give the game headroom to hold 30 fps. Install it with FBI (or any
+     CIA installer); it appears on the HOME menu.
    - **`3ds/SonicR/SonicR.3dsx`** — the Homebrew Launcher build. Same game,
-     but the console stays at 268 MHz, so expect about 20 fps in races. Fine
-     on an original 3DS/2DS, which has no faster clock anyway.
+     but it always runs at 268 MHz without the L2 cache: Luma's 3dsx loader
+     turns both off for every homebrew process, and Luma's *New 3DS CPU*
+     option only reaches installed titles, so setting it does not help here.
+     It still holds 30 fps in races on a New 3DS, just with less to spare.
+     The only choice on an original 3DS/2DS, which has no faster clock anyway.
 3. Copy the game data to `sdmc:/3ds/SonicR/` (next section). Both builds look
    there; the `.3dsx` also has to live in that folder.
 4. **Sound needs the DSP firmware dump** at `sdmc:/3ds/dspfirm.cdc`. Dump it once
@@ -150,9 +153,10 @@ The lobby's text line (a chat prompt in the PC game) is not typeable on the
 - **No sound** — `sdmc:/3ds/dspfirm.cdc` is missing (see *Get it*).
 - **Hangs on the Homebrew Launcher / black screens** — make sure you launched
   `SonicR.3dsx` from its own folder; the launcher shows the folder as one app.
-- **The bottom screen reads 268MHZ on a New 3DS / about 20 fps** — you are
-  running the `.3dsx`, which cannot raise the clock; install the `.cia` instead
-  (see *Get it*). The speed-up attempt and its result are in the debug log.
+- **The bottom screen reads 268MHZ on a New 3DS** — you are running the
+  `.3dsx`, which cannot raise the clock, even with Luma's *New 3DS CPU* option
+  set; install the `.cia` for the 804 MHz clock (see *Get it*). The speed-up
+  attempt and its result are in the debug log.
 - **The lobby's Host/Join does nothing online** — the console has no Wi-Fi
   connection (ONLINE needs an access point; use LOCAL WIRELESS without one).
 - Debug output goes to `svcOutputDebugString` (visible in Azahar's log and over
@@ -172,6 +176,12 @@ Requires devkitPro's 3DS toolchain (devkitARM, libctru, citro3d, picasso,
   into any prefix with `tar --strip-components=2`, then point `DEVKITPRO` there.
 - **Container** — `docker run --rm -u $(id -u) -v "$PWD":/work -w /work/source/3ds devkitpro/devkitarm:latest make -j`
   (this is what CI does).
+- **GitHub Actions** — `.github/workflows/build-3ds.yml` builds the `.3dsx`
+  and the CIA on every push to a branch other than `main` and on pull requests
+  that touch the game or 3DS code, and can be started by hand from the
+  Actions tab (with an option to keep the debug log). The package is attached
+  to the run as the `sonic-r-3d-3ds` artifact. On `main` the rolling release
+  runs the same workflow and publishes the zip.
 
 Then:
 

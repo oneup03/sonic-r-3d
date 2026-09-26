@@ -1,0 +1,136 @@
+# 3DS build — SonicR.3dsx (Homebrew Launcher) and SonicR.cia (installable).
+#
+# One recipe, used two ways:
+#
+#   - On its own, for pushes to branches other than main, pull requests and
+#     manual runs. The package is attached to the run as a workflow artifact;
+#     nothing is published.
+#   - Called by rolling-release.yml, which builds main and publishes the same
+#     sonic-r-3d-3ds.zip on the "rolling" release. main is left out of the
+#     push trigger below for that reason: it would only build it twice.
+#
+# Like the other targets this is the engine only. No Sega game data is in the
+# package; see docs/3ds.md for where the player's own copy goes.
+
+name: 3DS build
+
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - "source/3ds/**"
+      - "source/sdl/src/**"
+      - "DATA/BIN/OPTION/NET01.RAW"
+      - "DATA/SOUND/SFX/**"
+      - "docs/3ds.md"
+      - ".github/workflows/build-3ds.yml"
+  pull_request:
+    paths:
+      - "source/3ds/**"
+      - "source/sdl/src/**"
+      - "DATA/BIN/OPTION/NET01.RAW"
+      - "DATA/SOUND/SFX/**"
+      - "docs/3ds.md"
+      - ".github/workflows/build-3ds.yml"
+  workflow_dispatch:
+    inputs:
+      debug-log:
+        description: "Keep the debug log (stderr to svcOutputDebugString, readable over 3dslink)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      debug-log:
+        type: boolean
+        default: false
+
+# A newer push to the same branch or PR supersedes the build in progress.
+# Evaluated in the caller's context when rolling-release.yml calls this, where
+# it only ever sees main; the caller's own group is different, so the two
+# cannot wait on each other.
+concurrency:
+  group: build-3ds-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (Nintendo 3DS)
+    runs-on: ubuntu-latest
+    # devkitPro's own image: devkitARM, libctru, citro3d, picasso and 3dstools,
+    # with DEVKITPRO/DEVKITARM already exported. devkitPro asks that CI use the
+    # images rather than pacman.
+    container: devkitpro/devkitarm:latest
+    env:
+      # push and pull_request runs have no inputs, so this falls to 0 there.
+      DEBUG_LOG: ${{ inputs.debug-log && '1' || '0' }}
+      # makerom and bannertool are not devkitPro packages. Pinned release
+      # binaries, so a new upstream release cannot change the CIA under us.
+      MAKEROM_URL: https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-ubuntu_x86_64.zip
+      BANNERTOOL_URL: https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-linux.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch CIA tools
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends curl unzip zip ca-certificates >/dev/null
+          mkdir -p /tmp/ciatools && cd /tmp/ciatools
+          curl -fsSL -o makerom.zip "$MAKEROM_URL"
+          unzip -o -q makerom.zip
+          install -m 755 "$(find . -type f -name makerom | head -1)" /usr/local/bin/makerom
+          curl -fsSL -o bannertool.tar.gz "$BANNERTOOL_URL"
+          tar -xzf bannertool.tar.gz
+          install -m 755 "$(find . -type f -name 'bannertool*' ! -name '*.tar.gz' | head -1)" /usr/local/bin/bannertool
+          # Neither takes a version flag; both print it in their usage banner.
+          { makerom 2>&1 || true; } | head -1
+          { bannertool 2>&1 || true; } | head -1
+
+      - name: Build SonicR.3dsx
+        run: make -C source/3ds -j"$(nproc)" DEBUG_LOG="$DEBUG_LOG"
+
+      # Same objects as the .3dsx; this only adds the banner and the exheader
+      # that asks for the New 3DS 804 MHz clock and L2 cache (cia/SonicR.rsf),
+      # which a .3dsx can never get.
+      - name: Build SonicR.cia
+        run: >-
+          make -C source/3ds cia DEBUG_LOG="$DEBUG_LOG"
+          MAKEROM=/usr/local/bin/makerom BANNERTOOL=/usr/local/bin/bannertool
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          # Ships as the SD card's /3ds/SonicR/ folder: the game's data folders
+          # go in beside SonicR.3dsx. The bundled extras the PC data lacks
+          # (network icons, split replay voice clips) come along.
+          out=dist/3ds/SonicR
+          mkdir -p "$out/BIN/OPTION" "$out/SOUND/SFX"
+          cp source/3ds/SonicR.3dsx source/3ds/build/SonicR.smdh "$out/"
+          cp source/3ds/SonicR.cia dist/
+          cp README.md LICENSE docs/3ds.md "$out/"
+          cp DATA/BIN/OPTION/NET01.RAW "$out/BIN/OPTION/"
+          cp DATA/SOUND/SFX/*.WAV "$out/SOUND/SFX/"
+          (cd dist && zip -q -r ../sonic-r-3d-3ds.zip 3ds SonicR.cia)
+          ls -l sonic-r-3d-3ds.zip
+          {
+            echo "### Nintendo 3DS"
+            echo
+            echo "| File | Bytes |"
+            echo "|---|---|"
+            echo "| \`SonicR.3dsx\` | $(stat -c %s source/3ds/SonicR.3dsx) |"
+            echo "| \`SonicR.cia\` | $(stat -c %s source/3ds/SonicR.cia) |"
+            echo "| \`sonic-r-3d-3ds.zip\` | $(stat -c %s sonic-r-3d-3ds.zip) |"
+            echo
+            echo "Debug log: \`DEBUG_LOG=$DEBUG_LOG\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The artifact holds the release zip itself, as the Windows and Linux
+      # jobs do, so the rolling release can upload whatever it downloads.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sonic-r-3d-3ds
+          path: sonic-r-3d-3ds.zip
+          retention-days: 14
