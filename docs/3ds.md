@@ -96,6 +96,12 @@ row and Back on the 3DS: the keyboard rows of the PC game are gone, since there
 is no keyboard to scan. The pad remap asks for a button per action in turn;
 **SELECT** cancels it (there is no ESC key).
 
+**Unlock all:** Options → Game → *UNLOCK ALL* (on the 3DS it replaces the
+split-screen row) opens every character, Super Sonic and Radiant Emerald at
+once and is remembered. Turning it off puts back what was unlocked before it
+went on in that session; saving to a Load/Save slot while it is on keeps
+everything unlocked in that slot.
+
 ## Stereoscopic 3D and the touch screen
 
 - The **3D slider** sets the stereo separation. Slider down = mono, and the

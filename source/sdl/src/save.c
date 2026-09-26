@@ -22,6 +22,12 @@ extern int g_optCfg_488;
  * #defined in sonicr_globals.h into this array. */
 int g_saveBlock[554];
 
+/* Unlock-all option (3DS Game page). Stored in SONICR.INF slot 39, the last of
+ * the stereo tail block, which stereo.c leaves reserved and writes as 0, so an
+ * older INF reads back as off. */
+#define INF_SLOT_UNLOCK_ALL 39
+int g_optUnlockAll = 0;
+
 /* =====================================================================
  * InitDefaultTimeTables — FUN_00470DC8 — 539 bytes
  * Initializes all race time/checkpoint tables with defaults computed
@@ -408,6 +414,7 @@ int LoadGameSettings(void)
          * never used (buf[32..39]); a pre-stereo INF leaves them zero and
          * stereoConfigLoad keeps the compiled-in defaults. */
         stereoConfigLoad(buf, 40);
+        g_optUnlockAll = (buf[INF_SLOT_UNLOCK_ALL] == 1);
     }
     return 1;
 }
@@ -453,6 +460,7 @@ void SaveGameSettings(void)
         buf[24 + i] = g_optCfgRomData[i];
     }
     stereoConfigSave(buf, 40);
+    buf[INF_SLOT_UNLOCK_ALL] = g_optUnlockAll ? 1 : 0;
 
     bswap32_arr(buf, 40);
     FILE *fp = fOpen("SONICR.INF", "wb");

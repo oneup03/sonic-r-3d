@@ -903,6 +903,7 @@ extern int g_clipLeftTrue;
 extern int g_clipRightTrue;
 extern int g_glViewportOffsetY;
 extern int g_splitScreenMode;          /* 0x8fd45c */
+extern int g_optUnlockAll;             /* port: unlock-all option, SONICR.INF slot 39 */
 extern int g_ringAnimFrame;          /* 0x901c6c */
 extern int g_netGameStartState;          /* 0x501844 */
 extern int g_netReadyFlag;          /* 0x689bac */

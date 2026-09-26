@@ -174,6 +174,55 @@ const char *g_cmdHostIP = NULL;
 /* Default-unlocked on both DC (no command line) and SDL (debug convenience).
  * SDL also accepts -u to set this explicitly. */
 static int s_cmdUnlock = 0;
+
+/* Unlock-all. Everything it forces lives in g_saveBlock[5..15]
+ * (g_gpAllTracksFlag, g_charUnlockTable[0..9] incl. g_allCharsUnlocked) plus
+ * g_superSonicSeed, so those twelve words are all a snapshot needs.
+ *
+ * The snapshot is taken once, at the first Apply, and kept across the repeated
+ * Applies at every main-menu entry. Anything unlocked for real while it is held
+ * (winning Radiant Emerald, say) is therefore undone by a Restore; saving to a
+ * slot while unlock-all is on keeps everything unlocked in that slot. */
+#define UNLOCK_FIRST 5
+#define UNLOCK_WORDS 11
+static int s_unlockHeld = 0;
+static int s_unlockSnap[UNLOCK_WORDS];
+static int s_unlockSnapSeed;
+
+void UnlockAllApply(void)
+{
+    if (!s_unlockHeld) {
+        memcpy(s_unlockSnap, &g_saveBlock[UNLOCK_FIRST], sizeof(s_unlockSnap));
+        s_unlockSnapSeed = g_superSonicSeed;
+        s_unlockHeld = 1;
+    }
+    g_gpAllTracksFlag = 1;          /* unlock Radiant Emerald in course select */
+    /* All characters selectable + Super Sonic toggle. Deliberately NOT setting
+     * g_charUnlockState so the per-track emerald tokens still spawn (those are
+     * hidden when state==2). */
+    for (int ui = 0; ui < 10; ui++) {
+        g_charUnlockTable[ui] = 2;
+    }
+    g_allCharsUnlocked = 2;
+    g_superSonicSeed = 0x28;     /* seed char-select default to Super Sonic */
+}
+
+void UnlockAllRestore(void)
+{
+    if (s_unlockHeld) {
+        memcpy(&g_saveBlock[UNLOCK_FIRST], s_unlockSnap, sizeof(s_unlockSnap));
+        g_superSonicSeed = s_unlockSnapSeed;
+        s_unlockHeld = 0;
+    }
+}
+
+void UnlockAllSaveReplaced(void)
+{
+    s_unlockHeld = 0;
+    if (s_cmdUnlock || g_optUnlockAll) {
+        UnlockAllApply();
+    }
+}
 /* Fullscreen-desktop by default: that is the only mode where the backbuffer is
  * the panel's native resolution, which every output-pixel-keyed stereo mode
  * (row/column interlaced, checkerboard, and the LeiaSR lenticular weave) needs
@@ -1045,16 +1094,8 @@ main_menu_init:
     InitOptionStuff();
 
 main_menu_loop:
-    if (s_cmdUnlock) {
-        g_gpAllTracksFlag = 1;          /* unlock Radiant Emerald in course select */
-        /* Debug unlock (-u): all characters selectable + Super Sonic toggle.
-         * Deliberately NOT setting g_charUnlockState so the per-track emerald
-         * tokens still spawn (those are hidden when state==2). */
-        for (int ui = 0; ui < 10; ui++) {
-            g_charUnlockTable[ui] = 2;
-        }
-        g_allCharsUnlocked = 2;
-        g_superSonicSeed = 0x28;     /* seed char-select default to Super Sonic */
+    if (s_cmdUnlock || g_optUnlockAll) {
+        UnlockAllApply();            /* -u / --unlock, or the 3DS Game-page option */
     }
 
     do {

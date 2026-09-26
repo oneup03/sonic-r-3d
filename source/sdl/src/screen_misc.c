@@ -666,6 +666,31 @@ static void DrawOptionItem(int xPos, int itemIndex)
     }
 #endif
 
+#ifdef SONICR_3DS
+    /* Item 14 is the split-screen layout, which means nothing with one pad.
+     * On 3DS the row is "UNLOCK ALL" instead. The atlas has no blank pill, so
+     * one is rebuilt from this row's own "2P SPLIT" sprite: its two rounded
+     * 8-texel ends, and a text-free slice near the left stretched between
+     * them. The label goes on top in the pixel font, and the value is the
+     * atlas's own ON/OFF sprite, like every other toggle on this page. */
+    if (itemIndex == 14) {
+        const int *pill = s_optItemInfo[14];      /* tpage, srcX, srcY, ... */
+        const int px = 0x140 - pill[3] * 2, py = xPos * 2;
+        DrawTexturedQuad(px, py, 0x43FA0000, 16, 0x20, g_uiTexPage + pill[0],
+                         pill[1], pill[2], 8, 0x10, VERTEX_WHITE);
+        DrawTexturedQuad(px + 16, py, 0x43FA0000, 0x100 - 32, 0x20, g_uiTexPage + pill[0],
+                         pill[1] + 20, pill[2], 2, 0x10, VERTEX_WHITE);
+        DrawTexturedQuad(px + 0x100 - 16, py, 0x43FA0000, 16, 0x20, g_uiTexPage + pill[0],
+                         pill[1] + 0x80 - 8, pill[2], 8, 0x10, VERTEX_WHITE);
+        /* 10 glyphs at 12 px pitch, no trailing gap: 118 px wide, 14 tall. */
+        DrawDebugOverlayText("UNLOCK ALL", px + (0x100 - 118) / 2, py + 9, 2, 0xFFFFFFFFu);
+        DrawTexturedQuad(0x148, xPos * 2, 0x43FA0000, 0x80, 0x20, g_uiTexPage + 1,
+                         0xC0, ((g_optUnlockAll ? 1 : 0) << 4) + 0xE0, 0x40, 0x10,
+                         VERTEX_WHITE);
+        return;
+    }
+#endif
+
     const int *info = s_optItemInfo[itemIndex]; /* 5 ints: tpage, srcX, srcY, width, hasValue */
     int tpageOff = info[0];
     int srcX = info[1];
@@ -1442,6 +1467,23 @@ int OptionsMenuScreen(void)
                             break;
                         }
                         case 6: { /* item 14: g_splitScreenMode (0-1) */
+#ifdef SONICR_3DS
+                            /* UNLOCK ALL on 3DS (see DrawOptionItem). Takes
+                             * effect at once; off puts back what it replaced. */
+                            int on = (direction > 0);
+                            if (on != g_optUnlockAll) {
+                                g_optUnlockAll = on;
+                                if (on) {
+                                    UnlockAllApply();
+                                }
+                                else {
+                                    UnlockAllRestore();
+                                }
+                                PlaySoundEffect(1, 0, 0);
+                            }
+                            lastTime = timeGetTime() / 1000;
+                            break;
+#endif
                             int v = g_splitScreenMode + direction;
                             if (v < 0) {
                                 v = 0;
@@ -2733,6 +2775,11 @@ int LoadSaveScreen(void)
                     /* NEW: reset to defaults */
                     InitDefaultTimeTables();                  /* 0x48FD74 */
                     LoadAllGhostTimes();                     /* 0x48FD79 */
+                }
+                /* A load or a new save replaced the unlock flags wholesale;
+                 * re-take the unlock-all snapshot from them (port). */
+                if (s_lsColumn != 0) {
+                    UnlockAllSaveReplaced();
                 }
 
                 /* Confirm sound + fade out */

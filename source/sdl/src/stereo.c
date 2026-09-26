@@ -376,7 +376,8 @@ void stereoConfigLoad(const int *buf, int count)
     }
     g_s3dGhostContrast = (float)buf[S3D_INF_BASE + 5] / 10000.0f;
     g_s3dGhostLift     = (float)buf[S3D_INF_BASE + 6] / 10000.0f;
-    /* buf[S3D_INF_BASE + 7] reserved */
+    /* buf[S3D_INF_BASE + 7] is not stereo: save.c keeps the unlock-all
+     * option there. */
 
     stereoClampSettings();
 }
@@ -393,5 +394,5 @@ void stereoConfigSave(int *buf, int count)
     buf[S3D_INF_BASE + 4] = (int)(g_s3dHudDepth      * 10000.0f);
     buf[S3D_INF_BASE + 5] = (int)(g_s3dGhostContrast * 10000.0f);
     buf[S3D_INF_BASE + 6] = (int)(g_s3dGhostLift     * 10000.0f);
-    buf[S3D_INF_BASE + 7] = 0;
+    buf[S3D_INF_BASE + 7] = 0;   /* save.c overwrites: unlock-all */
 }

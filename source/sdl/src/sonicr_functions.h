@@ -229,6 +229,14 @@ void SaveReplayLog(void);                               /* 0x004DBC1C */
 int  LoadReplayLog(const char *filename);                /* 0x004DBED8 */
 void SaveToSlot(void);                                  /* 0x0048F8CC */
 void SaveGameSettings(void);                            /* 0x00424BB4 */
+/* Unlock-all (main.c): the --unlock switch, and on 3DS the Game-page option.
+ * Apply forces every character, Super Sonic and Radiant Emerald open in the
+ * live save data, after snapshotting what it overwrites; Restore puts the
+ * snapshot back; SaveReplaced drops a snapshot that a slot load or a new save
+ * has made stale, and re-applies if unlock-all is still wanted. */
+void UnlockAllApply(void);
+void UnlockAllRestore(void);
+void UnlockAllSaveReplaced(void);
 void SavePadTypesImpl(void);                            /* 0x00477D54 */
 
 /* =====================================================================
