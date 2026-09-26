@@ -26,6 +26,17 @@ int    sr_fError(FILE *file);
 #define fClose(file)                                    sr_fClose(file)
 #define fWrite(buffer, elementSize, elementCount, file) sr_fWrite((buffer), (elementSize), (elementCount), (file))
 #define fError(file)                                    sr_fError(file)
+#elif defined(SONICR_3DS)
+/* libctru's SD driver has no read cache, so every stdio refill is an IPC
+ * round trip. sr3ds_fopen (platform_3ds.c) is fopen plus a 64 KB setvbuf. */
+FILE *sr3ds_fopen(const char *path, const char *mode);
+#define fOpen(path, mode)                               sr3ds_fopen(path, mode)
+#define fRead(buffer, elementSize, elementCount, file)  fread(buffer, elementSize, elementCount, file)
+#define fSeek(file, offset, whence)                     fseek(file, offset, whence)
+#define fTell(file)                                     ftell(file)
+#define fClose(file)                                    fclose(file)
+#define fWrite(buffer, elementSize, elementCount, file) fwrite(buffer, elementSize, elementCount, file)
+#define fError(file)                                    ferror(file)
 #else
 #define fOpen(path, mode)                               fopen(path, mode)
 #define fRead(buffer, elementSize, elementCount, file)  fread(buffer, elementSize, elementCount, file)

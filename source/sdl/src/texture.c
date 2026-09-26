@@ -251,7 +251,7 @@ void LoadTPageRGB(int tpage, const char *filename)
      * malloc fails. */
     unsigned short *dst = (unsigned short *)g_tpagePixelBuf[tpage];
     
-#ifdef SONICR_DC
+#if defined(SONICR_DC) || defined(SONICR_3DS)
     unsigned char *raw = (unsigned char *)malloc((size_t)pixelCount * 3);
     if (raw != NULL) {
         fRead(raw, 1, ((size_t)pixelCount * 3)/4, fp);

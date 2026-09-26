@@ -21,6 +21,10 @@
 #include "net_transport.h"
 #include "r_draw.h"
 #include <stdarg.h>
+#include <stdint.h>
+
+/* Pixel-font text (defined with the lobby helpers further down). */
+void DrawDebugOverlayText(const char *s, int x, int y, int pixSz, uint32_t color);
 
 void SoftwareRenderSortedPolygons(void);
 void FlipSoftware(void);
@@ -424,8 +428,24 @@ static const int s_optPageItems[7][2] = {
     { 23, 30 },   /* 3: Graphics */
     { 99, 99 },   /* 4: unused */
     { 31, 31 },   /* 5: Exit to Windows confirm (YES/NO) */
+#ifdef SONICR_3DS
+    /* 6: Controls — the pad row and Back only. Rows 32-34 (view / redefine
+     * the keyboard bindings) wait for DirectInput scancodes that nothing on a
+     * 3DS ever sets and can only be left with ESC, so entering one froze the
+     * whole menu until the idle timeout. */
+    { 35, 36 },
+#else
     { 32, 36 },   /* 6: Controls */
+#endif
 };
+
+/* Cursor offset of the "configure pad" row inside page 6 — the row the menu
+ * lands on when the pad remap finishes or is cancelled. */
+#ifdef SONICR_3DS
+#define OPT_CTRL_PAD_CURSOR 0
+#else
+#define OPT_CTRL_PAD_CURSOR 3
+#endif
 
 /* =====================================================================
  * InitOptionsMenuPage — 0x00493820 — 140 bytes
@@ -900,10 +920,15 @@ static void DrawControlsRemapLabels(void)
         | ((unsigned)val << 16)
         | ((unsigned)val << 8)
         | (unsigned)val;
+#ifdef SONICR_3DS
+    /* SELECT cancels here (see the ReadInput hook in OptionsMenuScreen). */
+    DrawDebugOverlayText("SELECT - CANCEL", 0x10, 0x1BA + 6, 2, pulseColor);
+#else
     DrawTexturedQuad(0x10, 0x1BA, 0x43FA0000,
                      0x48, 0x1A, tpage3,
                      0xDC, 0x6B, 0x24, 0x0D,
                      pulseColor);
+#endif
 
     /* 10 action label rows — left (P1) and right (P2) columns */
     int yPos = 0x96;
@@ -992,10 +1017,15 @@ static void DrawJoystickRemapProgress(char *slotPtr)
         | ((unsigned)val << 16)
         | ((unsigned)val << 8)
         | (unsigned)val;
+#ifdef SONICR_3DS
+    /* SELECT cancels here (see the ReadInput hook in OptionsMenuScreen). */
+    DrawDebugOverlayText("SELECT - CANCEL", 0x10, 0x1BA + 6, 2, pulseColor);
+#else
     DrawTexturedQuad(0x10, 0x1BA, 0x43FA0000,
                      0x48, 0x1A, tpage3,
                      0xDC, 0x6B, 0x24, 0x0D,
                      pulseColor);
+#endif
 
     /* Action label rows — ROM table indexed by (cappedCount-3) */
     int cfgIdx = cappedCount - 3;
@@ -1237,6 +1267,14 @@ int OptionsMenuScreen(void)
 
         /* Read input state */
         ReadInput();                                            /* 0x493dd5 */
+#ifdef SONICR_3DS
+        /* No keyboard, so no ESC. The remap sub-pages cancel on DIK_ESCAPE
+         * and the pad remap captures every face and shoulder button, which
+         * leaves SELECT as the one button free to play that role. */
+        if (platform_menu_buttons() & MENUBTN_SELECT) {
+            g_diKeyboardState[0x01] = 1;
+        }
+#endif
 
         /* 0x493dda-0x493df4: while a CD track is playing the idle timer is
          * re-baselined every frame, so a Music Test audition is never cut
@@ -1721,6 +1759,9 @@ int OptionsMenuScreen(void)
                             else if ((g_joySlotState[3] >> 8) & 6) {
                                 slot = 3;
                             }
+                            DebugLog("[joy-remap] select: slot %d (state0 %04X, btnCount %d)\n",
+                                     slot, g_joySlotState[0],
+                                     slot >= 0 ? *(short *)&g_joystickSlots[slot][0x118] : -1);
                             if (slot < 0) {
                                 break;
                             }
@@ -1918,16 +1959,16 @@ int OptionsMenuScreen(void)
                 /* ESC = cancel — return to controls page, no commit */
                 if (g_optEscGate == 0) {
                     PlaySoundEffect(0, 0, 0);
-                    InitOptionsMenuPage(6, 3);
+                    InitOptionsMenuPage(6, OPT_CTRL_PAD_CURSOR);
                     g_optKeyRemapState = 0;
-#if 0
+#ifdef SONICR_DEBUG_LOG
                     fprintf(stderr, "[joy-remap] cancelled\n");
 #endif
                 }
                 g_optEscGate = 1;
             } else {
                 g_optEscGate = 0;
-#if 0
+#ifdef SONICR_DEBUG_LOG
                 /* Progress reporting (parallels the keyboard path) */
                 static const char *const s_jrAction[6] = {
                     "ACTION (Jump)", "PAUSE (Start)", "ACCEL",
@@ -1938,7 +1979,7 @@ int OptionsMenuScreen(void)
                 int progress = g_optKeyRemapProgress;
                 int cappedCount = btnCount > 6 ? 6 : btnCount;
                 if (progress < cappedCount && s_jrLastReported != progress) {
-#if 0
+#ifdef SONICR_DEBUG_LOG
                     fprintf(stderr,
                         "[joy-remap] slot %d, %s [%d/%d] — press a button (ESC cancels)\n",
                         playerSlot, s_jrAction[progress], progress + 1, cappedCount);
@@ -1978,13 +2019,13 @@ int OptionsMenuScreen(void)
                         }
                         dst[i] = g_optKeyRemapResult[i];
                     }
-#if 0
+#ifdef SONICR_DEBUG_LOG
                     fprintf(stderr,
                         "[joy-remap] complete — committed %d button(s) to slot %d\n",
                         cappedCount, playerSlot);
 #endif
                     SavePadTypesImpl();
-                    InitOptionsMenuPage(6, 3);
+                    InitOptionsMenuPage(6, OPT_CTRL_PAD_CURSOR);
                     g_optKeyRemapState = 0;
                     g_optEscGate       = 1;
                     s_jrLastReported   = -1;
@@ -4814,7 +4855,11 @@ static void RenderSignInScreen(const uint8_t *qrBuf, int qrSize,
     }
 
     {
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+        const char *prompt = "PRESS Y FOR LAN PLAY";   /* Y -> F3, see NetSynthPadKeys */
+#else
         const char *prompt = "PRESS F3 FOR LAN PLAY";
+#endif
         int pixSz = 3;
         int charW = 5 * pixSz + pixSz;
         int pLen = 0;
@@ -4856,7 +4901,17 @@ static void RenderSignInScreen(const uint8_t *qrBuf, int qrSize,
  * Adapted from binary with DirectPlay calls replaced by cross-platform
  * stubs. Modem states (0xA–0xC) stripped — not relevant for LAN/UDP.
  */
-#ifdef SONICR_DC
+/* 3DS: LOCAL (UDS) vs ONLINE (sockets), toggled with SELECT while the lobby
+ * is still on its Host/Join question. Local mode never talks to the
+ * matchmaker, whatever token is on the card. */
+#ifdef SONICR_3DS
+#include "net_uds_3ds.h"
+#define MM_HAS_TOKEN() (MatchmakerHasToken() && !g_netLocalMode)
+#else
+#define MM_HAS_TOKEN() MatchmakerHasToken()
+#endif
+
+#if defined(SONICR_DC) || defined(SONICR_3DS)
 /* The network lobby was keyboard-only — F1 Host/Start, F2 Join, F3 LAN-only,
  * F6 character, F8 track, F7 mode. A stock DC has no keyboard, so map raw
  * controller buttons onto those F-key slots each frame, right after ReadInput
@@ -4881,11 +4936,47 @@ static void NetSynthPadReset(void)
     s_netPadPrev = platform_menu_buttons();   /* held-on-entry -> not an edge */
 }
 
+/* Bottom-left legend naming the pad buttons for the current lobby state. The
+ * original UI only ever named F-keys (and the sprites still do), so without
+ * this the character / track / mode controls are undiscoverable on a pad. The
+ * session picker (state 3) draws its own hint line. */
+static void NetDrawPadLegend(void)
+{
+    const int x = 48;
+    const unsigned int hi = 0xFFFFFFFFu;
+    const unsigned int lo = 0xFF909090u;
+
+    if (ns_lobbyState == 0 && ns_connectionMode == 0) {
+#ifdef SONICR_3DS
+        DrawDebugOverlayText(g_netLocalMode ? "LOCAL WIRELESS" : "ONLINE", x, 440, 2, hi);
+        DrawDebugOverlayText("SELECT - CHANGE", x, 458, 2, lo);
+#else
+        DrawDebugOverlayText("B - BACK", x, 458, 2, lo);
+#endif
+    }
+    else if (ns_lobbyState == 1) {
+        DrawDebugOverlayText("B - BACK", x, 458, 2, lo);
+    }
+    else if (ns_lobbyState == 2) {
+        DrawDebugOverlayText("LEFT/RIGHT CHARACTER - UP/DOWN TRACK - L MODE", x, 440, 2, lo);
+        DrawDebugOverlayText(net_is_host() ? "A - START RACE - B - LEAVE"
+                                           : "WAITING FOR HOST - B - LEAVE", x, 458, 2, lo);
+    }
+}
+
 static void NetSynthPadKeys(void)
 {
     unsigned int mb = platform_menu_buttons();
     unsigned int edge = mb & ~s_netPadPrev;   /* buttons newly pressed this frame */
     s_netPadPrev = mb;
+#ifdef SONICR_3DS
+    /* Only while the Host/Join question is still open: the transport can't
+     * be swapped under a live session. */
+    if ((edge & MENUBTN_SELECT) && ns_lobbyState == 0 && ns_connectionMode == 0) {
+        g_netLocalMode = !g_netLocalMode;
+        PlaySoundEffect(2, 0, 0);
+    }
+#endif
     if (edge & (MENUBTN_A | MENUBTN_START))    g_diKeyboardState[0x3B] = 1; /* F1 */
     if (edge & MENUBTN_R)                       g_diKeyboardState[0x3C] = 1; /* F2 */
     if (edge & MENUBTN_Y)                       g_diKeyboardState[0x3D] = 1; /* F3 */
@@ -4900,6 +4991,7 @@ static void NetSynthPadKeys(void) { }
 
 int NetworkScreen(void)
 {
+    DebugLog("NetworkScreen\n");
     /* Bring up the network stack (deferred from boot on DC). */
     if (platform_net_init() < 0) {
         DebugLog("NetworkScreen: platform_net_init failed\n");
@@ -5350,7 +5442,7 @@ int NetworkScreen(void)
                 if (CreateNetworkSession(NS_STR_SESSION_PW, NS_STR_SESSION_NAME)) {
                     ns_setupMode = 1;                          /* [0x68AFD0] = 1 */
                     ns_lobbyState = 2;                         /* skip state 1 */
-                    if (MatchmakerHasToken()) {
+                    if (MM_HAS_TOKEN()) {
                         UpnpOpenPort(NET_PORT_DEFAULT);
                         int csOk = MatchmakerCreateSession(MatchmakerGetUsername(), NET_PORT_DEFAULT);
                         NetDbgPush("CREATE %s ID %lld USER %s",
@@ -5367,7 +5459,7 @@ int NetworkScreen(void)
             }
             if (g_netProviderChoice == 1) {                    /* Join selected */
                 ns_setupMode = 2;                              /* [0x68AFD0] = 2 — join mode */
-                if (MatchmakerHasToken()) {
+                if (MM_HAS_TOKEN()) {
                     int lsOk = MatchmakerListSessions(&g_mmSessionList);
                     DebugLog("Matchmaker: hasToken=1 sessions=%d\n", g_mmSessionList.count);
                     NetDbgPush("LIST %s SESSIONS %d",
@@ -5399,7 +5491,7 @@ int NetworkScreen(void)
             /* Join path: try matchmaker sessions first, then LAN. */
             if (ns_setupMode == 2 && g_resultsUnlockFlag != 0) {
                 int joined = 0;
-                if (MatchmakerHasToken() && g_mmSessionList.count > 0) {
+                if (MM_HAS_TOKEN() && g_mmSessionList.count > 0) {
                     extern const char *g_cmdHostIP;
                     g_cmdHostIP = g_mmSessionList.sessions[0].ip_address;
                     joined = JoinNetworkSession(NS_STR_JOIN_SESSION, 0);
@@ -5953,8 +6045,13 @@ render_frame:
                 }
 
                 if (ns_lobbyState == 0) {
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+                    const char *l1 = "PRESS A TO HOST";    /* A/Start -> F1, R -> F2 */
+                    const char *l2 = "PRESS R TO JOIN";    /* (NetSynthPadKeys)     */
+#else
                     const char *l1 = "PRESS F1 TO HOST";
                     const char *l2 = "PRESS F2 TO JOIN";
+#endif
                     int w1 = PixTextWidth(l1, 4);
                     int w2 = PixTextWidth(l2, 4);
                     DrawPixText(l1, (640 - w1) / 2, 200, 4, 0xFFFFFFFF);
@@ -6110,7 +6207,11 @@ render_frame:
                     }
                 }
 
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+                const char *hint = "UP/DOWN SELECT - START JOIN - Y LAN - B BACK";
+#else
                 const char *hint = "UP/DOWN SELECT - ENTER JOIN - F3 LAN - ESC BACK";
+#endif
                 int hintW = PixTextWidth(hint, 2);
                 DrawPixText(hint, (640 - hintW) / 2, 440, 2, 0xC0C0C0C0);
             }
@@ -6138,6 +6239,9 @@ render_frame:
             }
 
             NetDbgDraw();
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+            NetDrawPadLegend();
+#endif
 
             if (g_fadeLevel < 0) {
                 RenderFadeOverlay();
@@ -6804,8 +6908,13 @@ render_frame_re:
                 }
 
                 if (ns_lobbyState == 0) {
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+                    const char *l1 = "PRESS A TO HOST";    /* A/Start -> F1, R -> F2 */
+                    const char *l2 = "PRESS R TO JOIN";    /* (NetSynthPadKeys)     */
+#else
                     const char *l1 = "PRESS F1 TO HOST";
                     const char *l2 = "PRESS F2 TO JOIN";
+#endif
                     int w1 = PixTextWidth(l1, 4);
                     int w2 = PixTextWidth(l2, 4);
                     DrawPixText(l1, (640 - w1) / 2, 200, 4, 0xFFFFFFFF);
@@ -6838,6 +6947,9 @@ render_frame_re:
                 StringToGlyphIds(MatchmakerGetUsername(), glyphs, MM_MAX_USERNAME);
                 DrawGlyphString(20 + 26, 60, glyphs, MM_MAX_USERNAME);
             }
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+            NetDrawPadLegend();
+#endif
 
             if (g_fadeLevel < 0) {
                 RenderFadeOverlay();

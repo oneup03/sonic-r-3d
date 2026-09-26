@@ -87,7 +87,9 @@ static int ntp_fetch(uint64_t *out)
         rcvtimeo.tv_sec  = 2;
         rcvtimeo.tv_usec = 0;
 #endif
+#ifdef SO_RCVTIMEO   /* libctru's sockets have no receive timeout option */
         setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&rcvtimeo, sizeof(rcvtimeo));
+#endif
 
         if (sendto(s, (const char *)&pkt, sizeof(pkt), 0,
                    (struct sockaddr *)&addr, sizeof(addr)) < 0) {

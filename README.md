@@ -2,8 +2,9 @@
 
 Here you will find a reimplementation of *Sonic R* (the 1998 Sega PC release),
 decompiled from the original executable and rebuilt as modern, portable C.
-It runs natively on **Windows, macOS, and Linux** (via SDL2) and on the **Sega Dreamcast**
-(via KallistiOS), sharing one game-logic codebase across all targets.
+It runs natively on **Windows, macOS, and Linux** (via SDL2), on the **Sega Dreamcast**
+(via KallistiOS) and on the **Nintendo 3DS** (via libctru/citro3d), sharing one game-logic
+codebase across all targets.
 
 ## AI Disclosure
 This project is the product of several months of reverse-engineering and 
@@ -24,6 +25,7 @@ If this use of AI is in conflict with your personal beliefs or values, please le
 
 - **▶ Windows, macOS & Linux** → **[docs/desktop.md](docs/desktop.md)**
 - **▶ Sega Dreamcast** → **[docs/dreamcast.md](docs/dreamcast.md)**
+- **▶ Nintendo 3DS** → **[docs/3ds.md](docs/3ds.md)** — stereoscopic 3D, HUD on the touch screen
 
 Each guide is self-contained: how to get or build it, the game data you supply,
 controls, network play, saves, and troubleshooting for that platform.

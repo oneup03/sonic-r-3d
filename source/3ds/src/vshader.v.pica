@@ -1,0 +1,45 @@
+; Sonic R 3DS vertex shader.
+;
+; The game hands the backend pre-transformed vertices (sx, sy, sz, rhw). The
+; shader takes the reciprocal itself and rebuilds clip space as
+; (sx*w, sy*w, sz*w, w) so the PICA does a perspective-correct divide;
+; `projection` (an Mtx_OrthoTilt over the 640x480 virtual space) maps that
+; onto the rotated framebuffer.
+;
+; Stereo: every vertex carries `shift`, its horizontal disparity per unit of
+; separation in virtual pixels (see r_c3d_backend.c). `shear.x` is
+; dir * separation * slider for the target being drawn (0 for mono and for the
+; bottom screen), so one vertex buffer serves the left eye, the right eye and
+; the bottom screen.
+
+.fvec projection[4]
+.fvec shear
+
+.constf consts(0.00392156862745, 0.0, 1.0, 0.0)
+
+.out opos position
+.out otc0 texcoord0
+.out oclr color
+
+.alias ipos v0   ; float4 (sx, sy, sz, rhw)
+.alias itc  v1   ; float2 texcoord
+.alias ishf v2   ; float  stereo shift, per unit separation
+.alias iclr v3   ; ubyte4 RGBA (0..255, normalised here)
+
+.proc main
+	rcp r2, ipos.wwww               ; w = 1 / rhw
+	mul r0.xyz, ipos.xyz, r2.xxx    ; (sx*w, sy*w, sz*w)
+	mov r0.w, r2.x
+	mul r1.x, shear.x, ishf.x       ; shear * shift
+	mul r1.x, r1.x, r2.x            ; ... * w (pre-divide space)
+	add r0.x, r0.x, r1.x
+
+	dp4 opos.x, projection[0], r0
+	dp4 opos.y, projection[1], r0
+	dp4 opos.z, projection[2], r0
+	dp4 opos.w, projection[3], r0
+
+	mov otc0, itc
+	mul oclr, consts.xxxx, iclr
+	end
+.end

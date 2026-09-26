@@ -56,6 +56,19 @@ typedef int net_socket_t;
 #define NET_WOULD_BLOCK(e) ((e) == EAGAIN || (e) == EWOULDBLOCK)
 #endif
 
+/* 3DS: the lobby picks LOCAL (UDS, net_uds_3ds.c) or ONLINE (these sockets,
+ * brought up lazily so the radio isn't claimed until it is needed). */
+#ifdef SONICR_3DS
+#include "net_uds_3ds.h"
+#define NET_3DS_LOCAL(call)   do { if (g_netLocalMode) return call; } while (0)
+#define NET_3DS_LOCAL_V(call) do { if (g_netLocalMode) { call; return; } } while (0)
+#define NET_3DS_ONLINE()      do { if (net3ds_online_prepare() < 0) return -1; } while (0)
+#else
+#define NET_3DS_LOCAL(call)   do { } while (0)
+#define NET_3DS_LOCAL_V(call) do { } while (0)
+#define NET_3DS_ONLINE()      do { } while (0)
+#endif
+
 /* =====================================================================
  * Internal state
  * ===================================================================== */
@@ -159,6 +172,8 @@ int net_transport_init(void)
 
 int net_host_start(int port)
 {
+    NET_3DS_LOCAL(net_uds_host_start(port));
+    NET_3DS_ONLINE();
     if (s_active && s_isHost) return 0;
     if (s_active) net_close();
 
@@ -205,6 +220,8 @@ int net_host_start(int port)
 
 int net_client_connect(const char *host_ip, int port)
 {
+    NET_3DS_LOCAL(net_uds_client_connect(host_ip, port));
+    NET_3DS_ONLINE();
     if (s_active) net_close();
 
     s_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -268,6 +285,7 @@ static void assert_may_send(const void *data, int len)
 
 int net_send_to_host(const void *data, int len)
 {
+    NET_3DS_LOCAL(net_uds_send_to_host(data, len));
     if (!s_active || !socket_is_valid(s_socket)) return -1;
 
     if (s_isHost) {
@@ -284,6 +302,7 @@ int net_send_to_host(const void *data, int len)
 
 int net_broadcast(const void *data, int len)
 {
+    NET_3DS_LOCAL(net_uds_broadcast(data, len));
     if (!s_active || !socket_is_valid(s_socket)) return -1;
 
     if (s_isHost) {
@@ -303,6 +322,7 @@ int net_broadcast(const void *data, int len)
 
 int net_send_to(int player_slot, const void *data, int len)
 {
+    NET_3DS_LOCAL(net_uds_send_to(player_slot, data, len));
     if (!s_active || !socket_is_valid(s_socket)) return -1;
     if (player_slot < 0 || player_slot >= NET_MAX_PLAYERS) return -1;
     if (!s_playerValid[player_slot]) return -1;
@@ -317,6 +337,7 @@ int net_send_to(int player_slot, const void *data, int len)
 
 int net_recv(void *buf, int maxlen, int *from_slot)
 {
+    NET_3DS_LOCAL(net_uds_recv(buf, maxlen, from_slot));
     if (!s_active || !socket_is_valid(s_socket)) return 0;
 
     struct sockaddr_in sender;
@@ -367,6 +388,7 @@ int net_recv(void *buf, int maxlen, int *from_slot)
 
 int net_register_client(int slot)
 {
+    NET_3DS_LOCAL(net_uds_register_client(slot));
     if (slot < 0 || slot >= NET_MAX_PLAYERS) return -1;
     /* Slot registration is handled automatically in net_recv for now */
     return slot;
@@ -374,6 +396,8 @@ int net_register_client(int slot)
 
 int net_discover_send(int port)
 {
+    NET_3DS_LOCAL(net_uds_discover_send(port));
+    NET_3DS_ONLINE();
     /* Create a temporary broadcast socket */
     if (!socket_is_valid(s_discoverSocket)) {
         s_discoverSocket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -407,6 +431,7 @@ int net_discover_send(int port)
 
 int net_discover_check(char *host_ip, int host_ip_len)
 {
+    NET_3DS_LOCAL(net_uds_discover_check(host_ip, host_ip_len));
     if (!socket_is_valid(s_discoverSocket)) return 0;
 
     struct sockaddr_in sender;
@@ -431,26 +456,31 @@ int net_discover_check(char *host_ip, int host_ip_len)
 
 int net_is_active(void)
 {
+    NET_3DS_LOCAL(net_uds_is_active());
     return s_active;
 }
 
 int net_is_host(void)
 {
+    NET_3DS_LOCAL(net_uds_is_host());
     return s_isHost;
 }
 
 int net_local_slot(void)
 {
+    NET_3DS_LOCAL(net_uds_local_slot());
     return s_localSlot;
 }
 
 void net_set_local_slot(int slot)
 {
+    NET_3DS_LOCAL_V(net_uds_set_local_slot(slot));
     s_localSlot = slot;
 }
 
 void net_close(void)
 {
+    NET_3DS_LOCAL_V(net_uds_close());
     socket_close_if_valid(&s_socket);
     socket_close_if_valid(&s_discoverSocket);
     memset(s_playerValid, 0, sizeof(s_playerValid));
@@ -463,6 +493,7 @@ void net_close(void)
 
 void net_unregister_slot(int slot)
 {
+    NET_3DS_LOCAL_V(net_uds_unregister_slot(slot));
     if (slot <= 0 || slot >= NET_MAX_PLAYERS) return;
     if (!s_playerValid[slot]) return;
     fprintf(stderr, "net: freed slot %d (%s:%d)\n",
@@ -475,11 +506,12 @@ void net_unregister_slot(int slot)
 
 int net_slot_is_connected(int slot)
 {
+    NET_3DS_LOCAL(net_uds_slot_is_connected(slot));
     if (slot < 0 || slot >= NET_MAX_PLAYERS) return 0;
     return s_playerValid[slot] ? 1 : 0;
 }
 
-#ifdef SONICR_DC
+#if defined(SONICR_DC) || defined(SONICR_3DS)
 
 int net_probe_ping(const char *ip, int port, int timeout_ms)
 {

@@ -404,7 +404,7 @@ void SkipTrackHeader(void) {
     }
 }
 
-#if !defined(SONICR_DC) && !defined(__EMSCRIPTEN__)
+#if !defined(SONICR_DC) && !defined(SONICR_3DS) && !defined(__EMSCRIPTEN__)
 #define SONICR_SKY32 1
 #endif
 
@@ -738,17 +738,27 @@ void S3D_LoadAndScaleParallax(const char *filename, int destWidth, int destHeigh
     unsigned short *srcBuf = (unsigned short *)s_parallaxSrcStorage;
 
     /* Read source file: 0x34000 pixels, 3 bytes each (RGB) */
-#ifdef SONICR_DC
+#if defined(SONICR_DC) || defined(SONICR_3DS)
     {
         unsigned char *raw = (unsigned char *)malloc((size_t)PARALLAX_SRC_PIXELS * 3);
         if (raw != NULL) {
             fRead(raw, 1, (size_t)PARALLAX_SRC_PIXELS * 3, fp);
             unsigned short *dst = srcBuf;
             if (g_bitsPerPixel == 0x10) {
+#ifdef SONICR_DC
                 /* Dither parallax/sky source to break up 8->5/6-bit banding.
                  * Source is 1664x128; sky/parallax both sample from this. */
                 DitherConvertImageRGB565(raw, dst, PARALLAX_SRC_W,
                                          PARALLAX_SRC_PIXELS / PARALLAX_SRC_W);
+#else
+                /* Same RGB565 packing as the per-byte path below. */
+                for (int i = 0; i < PARALLAX_SRC_PIXELS; i++) {
+                    unsigned char r = raw[i*3+0], g = raw[i*3+1], b = raw[i*3+2];
+                    *dst++ = (unsigned short)(((int)g >> 2) << 5) +
+                             (unsigned short)(((int)r >> 3) << 11) +
+                             (unsigned short)((int)b >> 3);
+                }
+#endif
             }
             else {
                 for (int i = 0; i < PARALLAX_SRC_PIXELS; i++) {
@@ -795,7 +805,7 @@ void S3D_LoadAndScaleParallax(const char *filename, int destWidth, int destHeigh
                      (unsigned short)(((int)g >> 3) << 5);
         }
     }
-#ifdef SONICR_DC
+#if defined(SONICR_DC) || defined(SONICR_3DS)
 parallax_loaded:;
 #endif
 

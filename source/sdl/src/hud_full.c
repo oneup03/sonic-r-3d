@@ -665,9 +665,11 @@ void RenderHUD(void)
             /* Timer, lap times, position, minimap, reverse indicator —
              * all screen-space. Drawn as shallow-depth quads, so stereo has to
              * be told explicitly that they are overlay rather than world. */
+            R_BeginRaceHud();
             R_Begin2D();
             DrawTimerAndStatus(hudPlayerIdx);
             R_End2D();
+            R_EndRaceHud();
         }
 
         /* Track draws before characters — matches old batch flush order.
@@ -693,9 +695,11 @@ void RenderHUD(void)
             AnimateBalloons();
         }
 
+        R_BeginRaceHud();
         R_Begin2D();
         DrawItemBoxD3D();
         R_End2D();
+        R_EndRaceHud();
 
         DrawCollectEffectsD3D(g_collectEffectBuf);
 

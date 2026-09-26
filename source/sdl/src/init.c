@@ -822,7 +822,7 @@ void InitJoystickConfig(void)
     }
     *dst = '\0';
 
-#ifdef SONICR_DC
+#if defined(SONICR_DC) || defined(SONICR_3DS)
     /* DC controller — 7 stable button indices from platform_dc.c:
      *   0=A  1=B  2=X  3=Y  4=L trigger  5=R trigger  6=Start
      * Direction (D-pad / analog stick) is wired separately at the

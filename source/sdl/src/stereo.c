@@ -7,7 +7,9 @@
 
 #include <stdio.h>
 #include <string.h>
+#if !defined(SONICR_DC) && !defined(SONICR_3DS)
 #include <SDL.h>
+#endif
 #include "stereo.h"
 #include "aspect.h"
 
@@ -204,6 +206,7 @@ float stereoMaxShiftNdc(void)
  * written down and passed on the command line or kept via SONICR.INF.
  * ------------------------------------------------------------------------- */
 
+#if !defined(SONICR_DC) && !defined(SONICR_3DS)
 /* Does this scancode belong to us? Used to swallow rate-limited repeats without
  * letting them reach the game's key mapping. Must stay in step with the switch
  * in stereoHandleHotkey. */
@@ -309,6 +312,8 @@ int stereoHandleHotkey(int scancode, int isRepeat)
             return 0;
     }
 }
+
+#endif /* hotkeys: desktop only */
 
 /* ---------------------------------------------------------------------------
  * Persistence

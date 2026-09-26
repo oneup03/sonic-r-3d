@@ -116,6 +116,40 @@ done:
 static void RenderPortraitStandings_D3D(void);
 static void RenderButtonPrompt_D3D(void);
 
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+/* The lobby sheet (NET00.RAW) bakes "F1", "F6", "Esc" and friends into its
+ * pills and bars, and the consoles drive this screen from a pad (see
+ * NetSynthPadKeys in screen_misc.c). There are no unlabelled pills to draw
+ * instead, so a labelled sprite is rebuilt from its own parts: the two
+ * rounded ends as they are, the middle from a two-texel slice of plain body
+ * gradient stretched to width, and the pad button's name over it in the
+ * pixel font. `slice` is the texel column of that plain gradient. */
+extern void DrawDebugOverlayText(const char *s, int x, int y, int pixSz, unsigned int color);
+
+static void DrawPadLabelledSprite(int x, int y, int w, int h, int tpage,
+                                  int uvX, int uvY, int uvW, int uvH, int slice,
+                                  const char *label)
+{
+    const int endW  = 8;                     /* texels kept at each end */
+    const int endPx = endW * (w / uvW);      /* ends keep the sprite's scale */
+    const int pixSz = 2;
+    int len = 0;
+    while (label[len]) {
+        len++;
+    }
+    DrawTexturedQuad(x, y, 0x43FA0000, endPx, h, tpage,
+                     uvX, uvY, endW, uvH, VERTEX_WHITE);
+    DrawTexturedQuad(x + endPx, y, 0x43FA0000, w - 2 * endPx, h, tpage,
+                     uvX + slice, uvY, 2, uvH, VERTEX_WHITE);
+    DrawTexturedQuad(x + w - endPx, y, 0x43FA0000, endPx, h, tpage,
+                     uvX + uvW - endW, uvY, endW, uvH, VERTEX_WHITE);
+    /* Pixel font: 5x7 cells plus one cell of spacing, no trailing space. */
+    int textW = len * 6 * pixSz - pixSz;
+    DrawDebugOverlayText(label, x + (w - textW) / 2, y + (h - 7 * pixSz) / 2,
+                         pixSz, 0xFFFFFFFFu);
+}
+#endif
+
 /* =====================================================================
  * RenderResultsScreen — FUN_00489d18 — 2105 bytes
  *
@@ -152,6 +186,9 @@ void RenderResultsScreen(int screenMode, int playerOffset)
               | ((unsigned int)v << 8)
               | (unsigned int)v;
 
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+    DrawDebugOverlayText("B - BACK", 6, 12, 2, animColor);   /* was the "Esc..." sprite */
+#else
     DrawTexturedQuad(6, 6,           /* EAX=6, EDX=6 */
         0x43FA0000,                  /* depth = 500.0f */
         0x48, 0x1a,                  /* width=72, height=26 */
@@ -159,6 +196,7 @@ void RenderResultsScreen(int screenMode, int playerOffset)
         0xdc, 0xdb,                  /* uvX=220, uvY=219 */
         0x24, 0xd,                   /* uvW=36, uvH=13 */
         animColor);
+#endif
 
     /* Character banner — 0x48a1b7-0x48a1e6 */
     DrawTexturedQuad(0xe2, 0x20,     /* EAX=226, EDX=32 */
@@ -169,7 +207,13 @@ void RenderResultsScreen(int screenMode, int playerOffset)
         0x5e, 0xc,                   /* uvW=94, uvH=12 */
         VERTEX_WHITE); // 0xFFE0E0E0);
 
-    /* Player 1 portrait — 0x48a1eb-0x48a220 */
+    /* Player 1 portrait — 0x48a1eb-0x48a220. Despite the name this is the
+     * "F6" pill under the character model (F6 cycles the character). */
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+    /* Wider than the 80 px original so the label fits; same centre (140). */
+    DrawPadLabelledSprite(0x64 - 40, 0x9c, 0x50 + 80, 0x20, tpage,
+                          ROM_P1_TEXU, ROM_P1_TEXV, 0x28, 0x10, 9, "LEFT/RIGHT");
+#else
     DrawTexturedQuad(0x64, 0x9c,     /* EAX=100, EDX=156 */
         0x43FA0000,
         0x50, 0x20,                  /* width=80, height=32 */
@@ -177,10 +221,19 @@ void RenderResultsScreen(int screenMode, int playerOffset)
         ROM_P1_TEXU, ROM_P1_TEXV,   /* uvX=[0x5024a6]>>16, uvY=[0x5024a8]>>16 */
         0x28, 0x10,                  /* uvW=40, uvH=16 */
         VERTEX_WHITE); // 0xFFE0E0E0);
+#endif
 
     /* Multiplayer portraits — 0x48a225-0x48a2a2
      * Binary: cmp dword ptr [0x68ace4], 1; jne skip */
     if (g_netGameStarted == 1) {
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+        /* "F8" pill under the track model, centre 516; "F7" pill under the
+         * mode model, centre 320. Track cycles on D-pad up/down, mode on L. */
+        DrawPadLabelledSprite(0x1dc - 20, 0x9c, 0x50 + 40, 0x20, tpage,
+                              ROM_P2_TEXU, ROM_P2_TEXV, 0x28, 0x10, 9, "UP/DOWN");
+        DrawPadLabelledSprite(0x118, 0x9c, 0x50, 0x20, tpage,
+                              ROM_P3_TEXU, ROM_P3_TEXV, 0x28, 0x10, 9, "L");
+#else
         /* Player 2: 0x48a22e-0x48a263 */
         DrawTexturedQuad(0x1dc, 0x9c,  /* EAX=476, EDX=156 */
             0x43FA0000,
@@ -198,6 +251,7 @@ void RenderResultsScreen(int screenMode, int playerOffset)
             ROM_P3_TEXU, ROM_P3_TEXV, /* uvX=[0x5024aa]>>16, uvY=[0x5024ac]>>16 */
             0x28, 0x10,
             VERTEX_WHITE); // 0xFFE0E0E0);
+#endif
     }
 
     /* Text rendering — 0x48a2a2-0x48a2b6
@@ -316,6 +370,18 @@ void RenderResultsScreen(int screenMode, int playerOffset)
      * texV = (netReady == 1) ? 0x6c : 0x7c */
     if (screenMode == 2) {
         int texV = (g_netGameStarted == 1) ? 0x6c : 0x7c;
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+        /* "F1 GO!" only means anything to the host (F1 = A/Start there);
+         * clients keep "WAITING..." until the host starts the race. */
+        if (g_netGameStarted == 1 && net_is_host()) {
+            DrawPadLabelledSprite(0xc0, 0xe0, 0x100, 0x20, tpage,
+                                  0x80, 0x6c, 0x80, 0x10, 12, "A - START RACE");
+        }
+        else {
+            DrawTexturedQuad(0xc0, 0xe0, 0x43FA0000, 0x100, 0x20, tpage,
+                             0x80, 0x7c, 0x80, 0x10, VERTEX_WHITE);
+        }
+#else
         DrawTexturedQuad(0xc0, 0xe0,
             0x43FA0000,
             0x100, 0x20,
@@ -323,6 +389,7 @@ void RenderResultsScreen(int screenMode, int playerOffset)
             0x80, texV,             /* uvX=128, uvY per netReady */
             0x80, 0x10,
             VERTEX_WHITE); // 0xFFE0E0E0);
+#endif
     }
 
     /* Epilogue — 0x48a53e: always call helpers */
@@ -495,6 +562,12 @@ static void RenderButtonPrompt_D3D(void)
     if (g_netGameStarted == 0) {
         return;
     }
+#if defined(SONICR_DC) || defined(SONICR_3DS)
+    /* The "F5" pill: no pad button feeds F5 and the toggle is inert. */
+    (void)screenX;
+    (void)screenY2;
+    return;
+#endif
 
     DrawTexturedQuad(screenX, screenY2,  /* EAX=56, EDX=280 */
         0x43FA0000,

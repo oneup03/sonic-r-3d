@@ -195,7 +195,7 @@ void LoadTextureSubRect(const char *filename, int tpage, int width, int height,
 
     unsigned short *buf = (unsigned short *)g_tpagePixelBuf[tpage];
 
-#ifdef SONICR_DC
+#if defined(SONICR_DC) || defined(SONICR_3DS)
     size_t want = (size_t)width * (size_t)height * 3;
     unsigned char *raw = (unsigned char *)malloc(want);
     if (raw != NULL) {
@@ -320,7 +320,7 @@ void TintBackgroundTPage(int tintR, int tintG, int tintB)
         return;
     }
 
-#ifdef SONICR_DC
+#if defined(SONICR_DC) || defined(SONICR_3DS)
     unsigned char *raw = (unsigned char *)malloc((size_t)pixelCount * 3);
     if (raw != NULL) {
         size_t got = fRead(raw, 1, (size_t)(pixelCount * 3) / 4, fp);

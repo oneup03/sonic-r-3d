@@ -52,7 +52,12 @@ typedef enum {
      * must be pillarboxed, yet they carry a genuine depth and are meant to be
      * seen at it. Folding them into a 2D bucket would fix the aspect by
      * flattening them, which is not the same thing. */
-    R_LAYER_PILLARBOX = 0x10
+    R_LAYER_PILLARBOX = 0x10,
+
+    /* Modifier: the in-race HUD (timer, laps, position, minimap, item box).
+     * Backends with a second screen route these commands there; everyone
+     * else treats it as plain HUD. Carried with the command like the rest. */
+    R_LAYER_RACEHUD   = 0x20
 } R_Layer;
 
 #endif /* R_TYPES_H */

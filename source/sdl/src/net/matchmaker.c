@@ -439,7 +439,7 @@ void MatchmakerClearSession(void)
 
 /* UPnP───────────── */
 
-#ifdef SONICR_DC
+#if defined(SONICR_DC) || defined(SONICR_3DS)
 
 int  UpnpOpenPort(int port)  { (void)port; return 0; }
 void UpnpClosePort(int port) { (void)port; }

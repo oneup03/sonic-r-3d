@@ -704,6 +704,23 @@ void R_EndOverlay(void)
     }
 }
 
+/* Race-HUD scope: a tag only on GL (R_EmitVertex masks it off). */
+static int s_inRaceHud = 0;
+static int s_inRaceHudDepth = 0;
+
+void R_BeginRaceHud(void)
+{
+    s_inRaceHudDepth++;
+    s_inRaceHud = 1;
+}
+
+void R_EndRaceHud(void)
+{
+    if (s_inRaceHudDepth > 0 && --s_inRaceHudDepth == 0) {
+        s_inRaceHud = 0;
+    }
+}
+
 void R_DrawTriFan(const RenderVertex *v, int count)
 {
     if (count < 3) {
@@ -715,7 +732,8 @@ void R_DrawTriFan(const RenderVertex *v, int count)
     const int layer = (s_inOverlay ? R_LAYER_OVERLAY
                      : (s_in2D     ? R_LAYER_HUD
                                    : R_LAYER_WORLD))
-                    | (s_inPillarbox ? R_LAYER_PILLARBOX : 0);
+                    | (s_inPillarbox ? R_LAYER_PILLARBOX : 0)
+                    | (s_inRaceHud   ? R_LAYER_RACEHUD   : 0);
 
     /* Stereo: hand the primitive to the recorder instead of drawing it. The
      * whole frame is replayed once per eye at present time. */

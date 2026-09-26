@@ -67,7 +67,11 @@ static void rowText(int itemIndex, char *label, int labelSz,
             break;
 
         case ROW_SEPARATION:
+#ifdef SONICR_3DS
+            snprintf(label, (size_t)labelSz, "3D DEPTH MAX");   /* scaled by the slider */
+#else
             snprintf(label, (size_t)labelSz, "SEPARATION");
+#endif
             snprintf(value, (size_t)valueSz, "%.3f", (double)g_s3dSeparation);
             break;
 
@@ -100,13 +104,23 @@ static void rowText(int itemIndex, char *label, int labelSz,
     /* Everything below the mode row is inert while stereo is off. Dimming says
      * so without hiding the rows, which would make the page jump around as the
      * mode is toggled. */
+#ifndef SONICR_3DS
     if (itemIndex != ROW_MODE && g_s3dMode == S3D_OFF) {
         *dim = 1;
     }
+#endif
 }
 
 void StereoMenuDrawRow(int itemIndex, int rowY)
 {
+#ifdef SONICR_3DS
+    /* Output mode, eye swap and ghost reduction are properties of a desktop
+     * display; the 3DS has one autostereo panel and a hardware slider. */
+    if (itemIndex == ROW_MODE || itemIndex == ROW_SWAP_EYES || itemIndex == ROW_GHOST
+        || itemIndex == ROW_HUD_DEPTH) {   /* the HUD lives on the bottom screen */
+        return;
+    }
+#endif
     char label[24];
     char value[24];
     int dim = 0;
@@ -134,10 +148,18 @@ int StereoMenuAdjust(int itemIndex, int direction)
 
     /* Only the mode row responds while stereo is off — matching the dimming in
      * rowText, so what looks inert is inert. */
+#ifndef SONICR_3DS
     if (itemIndex != ROW_MODE && g_s3dMode == S3D_OFF) {
         return -1;   /* claimed, but inert — no click */
     }
+#endif
 
+#ifdef SONICR_3DS
+    if (itemIndex == ROW_MODE || itemIndex == ROW_SWAP_EYES || itemIndex == ROW_GHOST
+        || itemIndex == ROW_HUD_DEPTH) {
+        return -1;   /* claimed, but inert on 3DS */
+    }
+#endif
     switch (itemIndex) {
         case ROW_MODE: {
             int m = g_s3dMode + direction;

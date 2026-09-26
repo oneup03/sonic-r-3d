@@ -130,6 +130,53 @@
             }
         },
         {
+            // Nintendo 3DS build (source/3ds/SonicR.3dsx). Unlike the tasks
+            // above it runs on every OS: plain bash on Linux/macOS, the MSYS2
+            // bash from sonicr.msysRoot on Windows. It finds devkitPro's 3DS
+            // toolchain (3ds-dev) at $DEVKITPRO (MSYS or Windows form),
+            // /opt/devkitpro (pacman), ~/devkitpro (user-prefix install) or
+            // C:/devkitPro (the Windows installer), whichever has libctru.
+            "label": "Build (3DS)",
+            "detail": "make -C source/3ds — SonicR.3dsx via devkitARM + citro3d.",
+            "type": "process",
+            "command": "bash",
+            "args": [
+                "-c",
+                "set -e; case \"$(uname -s)\" in MINGW*|MSYS*) export PATH=/usr/bin:$PATH;; esac; for d in \"$DEVKITPRO\" \"$(cygpath -u \"$DEVKITPRO\" 2>/dev/null || true)\" /opt/devkitpro \"$HOME/devkitpro\" /c/devkitPro; do if [ -n \"$d\" ] && [ -d \"$d/devkitARM\" ] && [ -d \"$d/libctru\" ]; then export DEVKITPRO=\"$d\"; break; fi; done; if [ ! -d \"$DEVKITPRO/libctru\" ]; then echo 'devkitPro 3DS toolchain not found. Install 3ds-dev and set DEVKITPRO (see docs/3ds.md).'; exit 1; fi; export DEVKITARM=\"$DEVKITPRO/devkitARM\"; export PATH=\"$DEVKITPRO/tools/bin:$DEVKITARM/bin:$PATH\"; echo \"DEVKITPRO=$DEVKITPRO\"; exec make -j\"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)\" -C source/3ds"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "windows": {
+                "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",
+                "options": {
+                    "cwd": "${workspaceFolder}",
+                    "env": {
+                        "MSYSTEM": "MINGW64"
+                    }
+                }
+            },
+            "group": "build",
+            "problemMatcher": {
+                "owner": "c",
+                "source": "gcc",
+                "fileLocation": ["relative", "${workspaceFolder}/source/3ds"],
+                "pattern": {
+                    "regexp": "^(.*?):([0-9]+):([0-9]+): +(?:fatal +)?(warning|error): +(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            }
+        },
+        {
             "label": "Clean (release)",
             "type": "process",
             "command": "${config:sonicr.msysRoot}/usr/bin/bash.exe",

@@ -15,6 +15,8 @@
 #ifdef SONICR_DC
 #include <kos/thread.h>
 #include <kos/mutex.h>
+#elif defined(SONICR_3DS)
+#include <3ds.h>
 #else
 #include <pthread.h>
 #endif
@@ -48,6 +50,9 @@ static int              s_queueTail;    /* next read position */
 #ifdef SONICR_DC
 static mutex_t          s_queueMutex = MUTEX_INITIALIZER;
 static kthread_t       *s_recvThread;
+#elif defined(SONICR_3DS)
+static LightLock        s_queueMutex = 1;   /* 1 == unlocked */
+static Thread           s_recvThread;
 #else
 static pthread_mutex_t  s_queueMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t        s_recvThread;
@@ -57,6 +62,9 @@ static volatile int     s_threadRunning;
 #ifdef SONICR_DC
 #define QUEUE_LOCK()   mutex_lock(&s_queueMutex)
 #define QUEUE_UNLOCK() mutex_unlock(&s_queueMutex)
+#elif defined(SONICR_3DS)
+#define QUEUE_LOCK()   LightLock_Lock(&s_queueMutex)
+#define QUEUE_UNLOCK() LightLock_Unlock(&s_queueMutex)
 #else
 #define QUEUE_LOCK()   pthread_mutex_lock(&s_queueMutex)
 #define QUEUE_UNLOCK() pthread_mutex_unlock(&s_queueMutex)
@@ -112,6 +120,10 @@ static void *net_recv_thread_func(void *arg)
         } else {
             thd_sleep(1);
         }
+#elif defined(SONICR_3DS)
+        } else {
+            svcSleepThread(1000000LL);
+        }
 #else
         } else {
             usleep(1000);
@@ -120,6 +132,10 @@ static void *net_recv_thread_func(void *arg)
     }
     return NULL;
 }
+
+#ifdef SONICR_3DS
+static void net_recv_thread_func_3ds(void *arg) { (void)net_recv_thread_func(arg); }
+#endif
 
 /* Start the receive thread — called from StartNetworkThread (leaf_batch.c) */
 void NetRecvThread_Start(void)
@@ -130,6 +146,8 @@ void NetRecvThread_Start(void)
     s_threadRunning = 1;
 #ifdef SONICR_DC
     s_recvThread = thd_create(0, net_recv_thread_func, NULL);
+#elif defined(SONICR_3DS)
+    s_recvThread = threadCreate(net_recv_thread_func_3ds, NULL, 16 * 1024, 0x30, -2, false);
 #else
     pthread_create(&s_recvThread, NULL, net_recv_thread_func, NULL);
 #endif
@@ -144,6 +162,12 @@ void NetRecvThread_Stop(void)
 #ifdef SONICR_DC
     thd_join(s_recvThread, NULL);
     s_recvThread = NULL;
+#elif defined(SONICR_3DS)
+    if (s_recvThread) {
+        threadJoin(s_recvThread, U64_MAX);
+        threadFree(s_recvThread);
+        s_recvThread = NULL;
+    }
 #else
     pthread_join(s_recvThread, NULL);
 #endif

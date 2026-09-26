@@ -1,4 +1,4 @@
-# Rolling release — build Windows + Linux and republish the "rolling" release.
+# Rolling release — build Windows + Linux + 3DS and republish the "rolling" release.
 #
 # The release keeps ONE stable tag and ONE stable set of asset names, so the
 # download URLs never change:
@@ -155,9 +155,58 @@ jobs:
           path: sonic-r-3d-linux-x86_64.tar.gz
           retention-days: 7
 
+  n3ds:
+    name: Build (Nintendo 3DS)
+    runs-on: ubuntu-latest
+    # devkitPro's own image: devkitARM, libctru, citro3d, picasso, 3dstools,
+    # with DEVKITPRO/DEVKITARM already exported. devkitPro asks that CI use
+    # the images rather than pacman.
+    container: devkitpro/devkitarm:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build engine
+        run: make -C source/3ds -j"$(nproc)" DEBUG_LOG=0
+
+      # makerom and bannertool are not devkitPro packages; fetch the Linux
+      # binaries so the installable title (New 3DS clock) ships too.
+      - name: Build CIA
+        run: |
+          set -euo pipefail
+          apt-get update -qq && apt-get install -y -qq --no-install-recommends curl unzip zip ca-certificates >/dev/null
+          mkdir -p /tmp/ciatools && cd /tmp/ciatools
+          curl -sSL -o makerom.zip https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-ubuntu_x86_64.zip
+          unzip -o -q makerom.zip && install -m 755 "$(find . -type f -name 'makerom' | head -1)" /usr/local/bin/makerom
+          curl -sSL -o bt.tar.gz https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-linux.tar.gz
+          tar -xzf bt.tar.gz && install -m 755 "$(find . -type f -name 'bannertool*' | head -1)" /usr/local/bin/bannertool
+          cd "$GITHUB_WORKSPACE"
+          make -C source/3ds cia DEBUG_LOG=0 MAKEROM=/usr/local/bin/makerom BANNERTOOL=/usr/local/bin/bannertool
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          # Ships as the SD card's /3ds/SonicR/ folder: drop the game's data
+          # folders in beside SonicR.3dsx. The bundled extras the PC data lacks
+          # (network icons, split replay voice clips) come along.
+          out=dist/3ds/SonicR
+          mkdir -p "$out/BIN/OPTION" "$out/SOUND/SFX"
+          cp source/3ds/SonicR.3dsx source/3ds/build/SonicR.smdh "$out/"
+          cp source/3ds/SonicR.cia dist/
+          cp README.md LICENSE docs/3ds.md "$out/"
+          cp DATA/BIN/OPTION/NET01.RAW "$out/BIN/OPTION/"
+          cp DATA/SOUND/SFX/*.WAV "$out/SOUND/SFX/"
+          (cd dist && zip -r ../sonic-r-3d-3ds.zip 3ds SonicR.cia)
+          ls -l sonic-r-3d-3ds.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: n3ds
+          path: sonic-r-3d-3ds.zip
+          retention-days: 7
+
   release:
     name: Publish rolling release
-    needs: [windows, linux]
+    needs: [windows, linux, n3ds]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -191,6 +240,7 @@ jobs:
 
           - **Windows (x64)** — \`sonic-r-3d-windows-x64.zip\`. Statically linked; nothing to install. Includes \`leiasr_shim.dll\` for LeiaSR autostereo output.
           - **Linux (x86_64)** — \`sonic-r-3d-linux-x86_64.tar.gz\`. Links against the system SDL2, SDL2_mixer, GLEW and miniupnpc. Built on Ubuntu 24.04, which is effectively the floor — GLEW 2.2 and miniupnpc 17 are the two most likely to be too new for an older distro.
+          - **Nintendo 3DS** — \`sonic-r-3d-3ds.zip\`. \`SonicR.cia\` (install this on a New 3DS: it gets the 804 MHz clock) and the Homebrew Launcher \`3ds/SonicR/SonicR.3dsx\`; both read the game data from \`sdmc:/3ds/SonicR/\`. Stereoscopic 3D, HUD on the touch screen. See \`docs/3ds.md\`.
 
           These URLs are stable and always point at the newest build:
 
@@ -232,6 +282,7 @@ jobs:
           gh release upload "$tag" \
             dist/sonic-r-3d-windows-x64.zip \
             dist/sonic-r-3d-linux-x86_64.tar.gz \
+            dist/sonic-r-3d-3ds.zip \
             --clobber
 
           echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"

@@ -54,6 +54,12 @@ void R_EndOverlay(void);
 void R_BeginPillarbox(void);
 void R_EndPillarbox(void);
 
+/* Declare that the enclosed draws are the in-race HUD. A modifier on top of
+ * R_Begin2D: on a two-screen target (3DS) these go to the second screen; the
+ * GL and PVR backends only tag them. Nestable. */
+void R_BeginRaceHud(void);
+void R_EndRaceHud(void);
+
 /* Clear the colour buffer, honouring the current scissor. Routed through the
  * stereo recorder so each eye gets its own clear on replay. */
 void R_ClearColor(float r, float g, float b, float a);
