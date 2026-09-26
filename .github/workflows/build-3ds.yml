@@ -63,6 +63,11 @@ jobs:
     # with DEVKITPRO/DEVKITARM already exported. devkitPro asks that CI use the
     # images rather than pacman.
     container: devkitpro/devkitarm:latest
+    # Steps in a container job run under sh unless a shell is named
+    # (actions/runner#1533), and sh rejects `set -o pipefail` with exit 2.
+    defaults:
+      run:
+        shell: bash
     env:
       # push and pull_request runs have no inputs, so this falls to 0 there.
       DEBUG_LOG: ${{ inputs.debug-log && '1' || '0' }}
